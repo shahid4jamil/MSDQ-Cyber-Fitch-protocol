@@ -1,0 +1,6 @@
+{
+  "name": "MSDQ Cyber-Fintech Protocol",
+  "description": "Next-generation decentralized mining node, halving tracker, multi-ledger custodial wallet, GameFi sandbox, and protocol administration portal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

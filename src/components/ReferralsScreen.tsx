@@ -1,0 +1,229 @@
+import React, { useState } from "react";
+import { NodeReferral } from "../types";
+
+interface ReferralsScreenProps {
+  referrals: NodeReferral[];
+  onPingNode: (nodeId: string) => void;
+  onOpenInviteModal: () => void;
+}
+
+export const ReferralsScreen: React.FC<ReferralsScreenProps> = ({
+  referrals,
+  onPingNode,
+  onOpenInviteModal,
+}) => {
+  const [copiedCode, setCopiedCode] = useState(false);
+  const referralCode = "MSDQ-CYBER-8842";
+
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(referralCode);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  return (
+    <div className="flex flex-col gap-4 pb-24 max-w-xl mx-auto px-3.5 pt-3">
+      {/* Ambassador Tier Banner */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#1c2028] via-[#151a24] to-[#12161f] border border-[#4edea3]/40 p-5 shadow-lg">
+        <div className="flex items-center justify-between text-xs font-mono">
+          <span className="text-[#4edea3] font-bold flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-[16px]">verified</span>
+            AMBASSADOR TIER 2
+          </span>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-[#4edea3]/10 text-[#4edea3] border border-[#4edea3]/30">
+            64 / 100 NODES
+          </span>
+        </div>
+
+        <h1 className="text-xl font-mono font-bold text-[#dfe2ee] mt-2">
+          Sovereign Node Syndicate
+        </h1>
+        <p className="text-xs text-[#bbcabf] mt-1">
+          Expand your decentralized mining mesh to compound cryptographic hash surge bonuses across 3 recursive tiers.
+        </p>
+
+        {/* Tier Progress Bar */}
+        <div className="w-full h-2 rounded-full bg-[#0a0e16] mt-4 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-[#4edea3] to-[#4cd7f6]"
+            style={{ width: "64%" }}
+          ></div>
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] font-mono text-[#bbcabf] mt-1.5">
+          <span>Tier 2 (64 Nodes)</span>
+          <span>Next: Master Ambassador (100 Nodes)</span>
+        </div>
+      </div>
+
+      {/* Referral Yield Metrics Row */}
+      <div className="grid grid-cols-3 gap-2.5">
+        <div className="p-3 rounded-2xl bg-[#1c2028] border border-[#3c4a42]/50 flex flex-col">
+          <span className="text-[10px] font-mono text-[#bbcabf] uppercase">Total Yield</span>
+          <span className="text-sm font-mono font-bold text-[#4edea3] mt-1">3,420.60</span>
+          <span className="text-[10px] text-[#bbcabf] font-mono">MSDQ Earned</span>
+        </div>
+
+        <div className="p-3 rounded-2xl bg-[#1c2028] border border-[#3c4a42]/50 flex flex-col">
+          <span className="text-[10px] font-mono text-[#bbcabf] uppercase">Mesh Nodes</span>
+          <span className="text-sm font-mono font-bold text-[#dfe2ee] mt-1">64 Rigs</span>
+          <span className="text-[10px] text-[#4cd7f6] font-mono">10 Direct</span>
+        </div>
+
+        <div className="p-3 rounded-2xl bg-[#1c2028] border border-[#3c4a42]/50 flex flex-col">
+          <span className="text-[10px] font-mono text-[#bbcabf] uppercase">Hash Surge</span>
+          <span className="text-sm font-mono font-bold text-[#ffb95f] mt-1">+4.82 MH/s</span>
+          <span className="text-[10px] text-[#4edea3] font-mono">+0.50 MSDQ/h</span>
+        </div>
+      </div>
+
+      {/* Sovereign Node Referral Code Card */}
+      <div className="rounded-3xl bg-[#181c24] border border-[#3c4a42]/60 p-4">
+        <span className="text-xs font-mono font-bold text-[#dfe2ee] uppercase tracking-wider">
+          Your Sovereign Enclave Code
+        </span>
+
+        <div className="flex items-center gap-2 mt-3">
+          <div className="flex-1 p-3 rounded-2xl bg-[#0f131c] border border-[#4edea3]/40 font-mono text-sm font-bold text-[#4edea3] flex items-center justify-between">
+            <span>{referralCode}</span>
+            <span className="text-[10px] text-[#bbcabf] font-normal">LINKED NODE</span>
+          </div>
+
+          <button
+            onClick={handleCopy}
+            className="p-3 rounded-2xl bg-[#262a33] border border-[#3c4a42]/60 text-[#dfe2ee] hover:text-[#4edea3] hover:border-[#4edea3]/40 transition-colors flex items-center justify-center"
+            title="Copy Code"
+          >
+            <span className="material-symbols-outlined text-[20px]">
+              {copiedCode ? "check" : "content_copy"}
+            </span>
+          </button>
+
+          <button
+            onClick={onOpenInviteModal}
+            className="py-3 px-4 rounded-2xl bg-[#4edea3] text-[#003824] font-mono text-xs font-bold hover:brightness-110 transition-all flex items-center gap-1.5"
+          >
+            <span className="material-symbols-outlined text-[18px]">share</span>
+            Share
+          </button>
+        </div>
+      </div>
+
+      {/* 3-Tier Commission Matrix */}
+      <div className="rounded-3xl bg-[#181c24] border border-[#3c4a42]/60 p-4">
+        <span className="text-xs font-mono font-bold text-[#dfe2ee] uppercase tracking-wider">
+          Syndicate Commission Matrix
+        </span>
+
+        <div className="grid grid-cols-3 gap-2 mt-3">
+          <div className="p-3 rounded-2xl bg-[#0f131c] border border-[#4edea3]/30">
+            <span className="text-[10px] font-mono text-[#4edea3] font-bold uppercase">Tier 1 Direct</span>
+            <div className="text-lg font-mono font-bold text-[#dfe2ee] mt-1">15%</div>
+            <span className="text-[10px] text-[#bbcabf] font-mono">10 Active Rigs</span>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-[#0f131c] border border-[#4cd7f6]/30">
+            <span className="text-[10px] font-mono text-[#4cd7f6] font-bold uppercase">Tier 2 Sub</span>
+            <div className="text-lg font-mono font-bold text-[#dfe2ee] mt-1">5%</div>
+            <span className="text-[10px] text-[#bbcabf] font-mono">28 Active Rigs</span>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-[#0f131c] border border-[#ffb95f]/30">
+            <span className="text-[10px] font-mono text-[#ffb95f] font-bold uppercase">Tier 3 Swarm</span>
+            <div className="text-lg font-mono font-bold text-[#dfe2ee] mt-1">2%</div>
+            <span className="text-[10px] text-[#bbcabf] font-mono">26 Active Rigs</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Direct Hardware Nodes List */}
+      <div className="rounded-3xl bg-[#181c24] border border-[#3c4a42]/60 p-4">
+        <div className="flex items-center justify-between pb-3 border-b border-[#3c4a42]/40">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[#4edea3] text-[18px]">
+              hub
+            </span>
+            <span className="text-xs font-mono font-bold text-[#dfe2ee] uppercase tracking-wider">
+              Connected Hardware Nodes
+            </span>
+          </div>
+          <span className="text-[11px] font-mono text-[#bbcabf]">
+            {referrals.length} Nodes Loaded
+          </span>
+        </div>
+
+        <div className="divide-y divide-[#3c4a42]/30 mt-2">
+          {referrals.map((node) => (
+            <div key={node.id} className="py-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-[#262a33] flex items-center justify-center font-mono text-xs text-[#4edea3] border border-[#3c4a42]/50">
+                  {node.name.slice(0, 2)}
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium text-[#dfe2ee]">{node.name}</span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-[#4edea3]/10 text-[#4edea3]">
+                      {node.tier}
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono text-[#bbcabf] mt-0.5">
+                    +{node.hashContribution} MH/s • {node.yieldGenerated.toFixed(1)} MSDQ Yield
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="text-right">
+                  <span
+                    className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full ${
+                      node.status === "Active"
+                        ? "bg-[#4edea3]/10 text-[#4edea3]"
+                        : node.status === "Idle"
+                        ? "bg-[#ffb4ab]/10 text-[#ffb4ab]"
+                        : "bg-[#ffb95f]/10 text-[#ffb95f]"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        node.status === "Active"
+                          ? "bg-[#4edea3]"
+                          : node.status === "Idle"
+                          ? "bg-[#ffb4ab]"
+                          : "bg-[#ffb95f]"
+                      }`}
+                    ></span>
+                    {node.status}
+                  </span>
+                  <div className="text-[9px] font-mono text-[#86948a] mt-0.5">
+                    {node.lastPing}
+                  </div>
+                </div>
+
+                {node.canPing && (
+                  <button
+                    onClick={() => onPingNode(node.id)}
+                    className="p-1.5 rounded-xl bg-[#ffb95f]/15 text-[#ffb95f] border border-[#ffb95f]/30 hover:bg-[#ffb95f]/25 transition-colors text-xs flex items-center"
+                    title="Send Wakeup Ping"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">notifications</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Anti-Fraud Sybil Security Banner */}
+      <div className="p-3.5 rounded-2xl bg-[#0f131c] border border-[#3c4a42]/50 flex items-start gap-3">
+        <span className="material-symbols-outlined text-[#4cd7f6] text-[20px] shrink-0 mt-0.5">
+          security
+        </span>
+        <div className="text-xs text-[#bbcabf] leading-relaxed">
+          <span className="font-bold text-[#dfe2ee]">Automated Sybil Armor Active: </span>
+          All referral nodes must pass decentralized Proof-of-Tap and hardware entropy challenges. Duplicate IP clustering is automatically isolated.
+        </div>
+      </div>
+    </div>
+  );
+};

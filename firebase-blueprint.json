@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account and sovereign wallet profile in MSDQ Network",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "description": "Verified user email address" },
+        "displayName": { "type": "string", "description": "User chosen callsign or display name" },
+        "phoneNumber": { "type": "string", "description": "Optional verified phone number" },
+        "walletAddress": { "type": "string", "description": "Permanent unique MSDQ wallet address" },
+        "msdqBalance": { "type": "number", "description": "Active protocol MSDQ balance" },
+        "ptsBalance": { "type": "number", "description": "Active GameFi sandbox PTS balance" },
+        "miningBalance": { "type": "number", "description": "Accumulated uncollected mining yield" },
+        "earnedBalance": { "type": "number", "description": "Total earned from bounties and mining" },
+        "joiningBonusClaimed": { "type": "boolean", "description": "Whether the new account joining bonus was credited" },
+        "kycStatus": { "type": "string", "enum": ["NOT_SUBMITTED", "PENDING", "VERIFIED", "REJECTED", "NEEDS_RESUBMISSION"], "description": "Current KYC tier verification status" },
+        "kycDocumentNumber": { "type": "string", "description": "Unique hashed/recorded identity document number to enforce one account policy" },
+        "status": { "type": "string", "enum": ["Active", "Frozen", "Flagged"], "description": "Operational account status" },
+        "role": { "type": "string", "enum": ["user", "admin"], "description": "Account permission role" },
+        "createdAt": { "type": "number", "description": "Registration epoch timestamp" },
+        "lastActiveAt": { "type": "number", "description": "Last active timestamp for online presence" }
+      },
+      "required": ["id", "email", "walletAddress", "msdqBalance", "ptsBalance", "status"]
+    },
+    "WalletTransaction": {
+      "title": "WalletTransaction",
+      "description": "Atomic immutable transaction ledger entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique transaction identifier" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "type": { "type": "string", "enum": ["send", "receive", "mining", "conversion_pts_to_msdq", "conversion_msdq_to_pts", "reward", "game_win", "game_bet"], "description": "Transaction category" },
+        "amount": { "type": "number", "description": "Amount transferred or credited" },
+        "fee": { "type": "number", "description": "Network or processing fee" },
+        "senderAddress": { "type": "string", "description": "Sender MSDQ wallet address" },
+        "receiverAddress": { "type": "string", "description": "Recipient MSDQ wallet address" },
+        "txHash": { "type": "string", "description": "Cryptographic proof hash" },
+        "status": { "type": "string", "enum": ["confirmed", "pending", "failed"], "description": "Transaction finality status" },
+        "timestamp": { "type": "number", "description": "Timestamp in milliseconds" },
+        "note": { "type": "string", "description": "Transaction annotation or memo" }
+      },
+      "required": ["id", "userId", "type", "amount", "status", "timestamp"]
+    },
+    "KycApplication": {
+      "title": "KycApplication",
+      "description": "Identity verification submission for anti-duplicate account protection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "User UID and application ID" },
+        "userId": { "type": "string", "description": "Firebase UID" },
+        "userEmail": { "type": "string", "description": "Applicant email" },
+        "legalName": { "type": "string", "description": "Full legal name matching document" },
+        "dob": { "type": "string", "description": "Date of birth (YYYY-MM-DD)" },
+        "nationality": { "type": "string", "description": "Country of citizenship" },
+        "idType": { "type": "string", "enum": ["National ID", "Passport", "Driver's License"], "description": "Government document type" },
+        "idNumber": { "type": "string", "description": "Official government ID serial number" },
+        "documentPhoto": { "type": "string", "description": "Front/back document capture identifier or preview data" },
+        "selfiePhoto": { "type": "string", "description": "Facial liveness verification photo" },
+        "status": { "type": "string", "enum": ["PENDING", "VERIFIED", "REJECTED", "NEEDS_RESUBMISSION"], "description": "Review status" },
+        "submittedAt": { "type": "number", "description": "Submission timestamp" },
+        "reviewedAt": { "type": "number", "description": "Timestamp of admin determination" },
+        "reviewNotes": { "type": "string", "description": "Admin review feedback or rejection reason" }
+      },
+      "required": ["id", "userId", "legalName", "idType", "idNumber", "status", "submittedAt"]
+    },
+    "GameSession": {
+      "title": "GameSession",
+      "description": "Active game sessions for multiplayer Ludo and Crash",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique session ID, formatted as userId_gameType" },
+        "userId": { "type": "string", "description": "ID of the user who owns this game session" },
+        "userName": { "type": "string", "description": "Display name of the user" },
+        "gameType": { "type": "string", "description": "Type of game" },
+        "status": { "type": "string", "enum": ["ACTIVE", "COMPLETED", "ABANDONED"], "description": "Current session status" },
+        "roomId": { "type": "string", "description": "Active room ID" },
+        "roomCode": { "type": "string", "description": "Join code" },
+        "roundId": { "type": "string", "description": "Round identifier" },
+        "stake": { "type": "number", "description": "Stake associated with session" },
+        "lastActiveAt": { "type": "number", "description": "Unix timestamp in ms" },
+        "reconnectToken": { "type": "string", "description": "Token for state resumption" }
+      },
+      "required": ["id", "userId", "userName", "gameType", "status", "lastActiveAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User sovereign account documents"
+    },
+    "/transactions/{txId}": {
+      "schema": { "$ref": "#/entities/WalletTransaction" },
+      "description": "Immutable ledger transaction records"
+    },
+    "/kyc_applications/{appId}": {
+      "schema": { "$ref": "#/entities/KycApplication" },
+      "description": "Identity verification records strictly accessible by user or admin"
+    },
+    "/game_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/GameSession" },
+      "description": "Real-time game session tracking"
+    }
+  }
+}

@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'shahid4jamil@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidGameSession(data) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'gameType', 'status', 'lastActiveAt']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.userName is string && data.userName.size() <= 100 &&
+        data.gameType in ['ludo', 'crash', 'dice', 'coinflip', 'wheel', 'numbers', 'colors'] &&
+        data.status in ['ACTIVE', 'COMPLETED', 'ABANDONED'] &&
+        data.lastActiveAt is number &&
+        (!('roomId' in data) || (data.roomId is string && data.roomId.size() <= 128)) &&
+        (!('roomCode' in data) || (data.roomCode is string && data.roomCode.size() <= 64)) &&
+        (!('roundId' in data) || (data.roundId is string && data.roundId.size() <= 128)) &&
+        (!('stake' in data) || (data.stake is number && data.stake >= 0)) &&
+        (!('reconnectToken' in data) || (data.reconnectToken is string && data.reconnectToken.size() <= 128));
+    }
+
+    // User Sovereign Account Profiles
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (
+        !isSignedIn() || request.auth.uid == userId || isAdmin()
+      );
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && (
+        !isSignedIn() || request.auth.uid == userId || isAdmin()
+      );
+      allow update: if isValidId(userId) && (
+        !isSignedIn() || request.auth.uid == userId || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Immutable Ledger Transactions
+    match /transactions/{txId} {
+      allow get: if isValidId(txId) && (
+        !isSignedIn() || resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isValidId(txId) && (
+        !isSignedIn() || request.resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    // KYC Identity Verification Applications
+    match /kyc_applications/{appId} {
+      allow get: if isValidId(appId) && (
+        !isSignedIn() || resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow list: if isAdmin();
+      allow create: if isValidId(appId) && (
+        !isSignedIn() || request.resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow update: if isValidId(appId) && (
+        (!isSignedIn() || resource.data.userId == request.auth.uid || isAdmin())
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Active Game Sessions for State Resumption & Matchmaking
+    match /game_sessions/{sessionId} {
+      allow get: if isValidId(sessionId) && (
+        !isSignedIn() || resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isValidId(sessionId) &&
+        isValidGameSession(request.resource.data) &&
+        (!isSignedIn() || request.resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isValidId(sessionId) &&
+        isValidGameSession(request.resource.data) &&
+        (!isSignedIn() || resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isValidId(sessionId) &&
+        (!isSignedIn() || resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Admin configuration node
+    match /system_config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
