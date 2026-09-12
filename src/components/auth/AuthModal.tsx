@@ -10,6 +10,9 @@ import {
   sendEmailVerificationCode,
   verifyEmailCode,
   resendEmailVerificationCode,
+  generateUserId,
+  generateWalletAddress,
+  generateReferralCode,
   UserProfile,
 } from "../../lib/firebase";
 import { User } from "firebase/auth";
@@ -43,6 +46,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [copiedAddress, setCopiedAddress] = useState(false);
+  const [firebaseConfigError, setFirebaseConfigError] = useState<"operation-not-allowed" | "unauthorized-domain" | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   // 6-Digit Email OTP Verification State
   const [otpCode, setOtpCode] = useState("");
@@ -140,16 +145,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
+  const parseAndSetAuthError = (err: any) => {
+    const code = err?.code || "";
+    const msg = err?.message || "";
+    if (code === "auth/operation-not-allowed" || msg.includes("auth/operation-not-allowed") || msg.includes("operation-not-allowed")) {
+      setFirebaseConfigError("operation-not-allowed");
+    } else if (code === "auth/unauthorized-domain" || msg.includes("auth/unauthorized-domain") || msg.includes("unauthorized-domain")) {
+      setFirebaseConfigError("unauthorized-domain");
+    } else {
+      setFirebaseConfigError(null);
+    }
+    setErrorMessage(formatFirebaseAuthError(err));
+  };
+
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMessage(null);
+    setFirebaseConfigError(null);
     try {
       const { user, profile } = await signInWithGoogle();
       onAuthSuccess(user, profile);
       onClose();
     } catch (err: any) {
       console.error("Google sign in error:", err);
-      setErrorMessage(formatFirebaseAuthError(err));
+      parseAndSetAuthError(err);
     } finally {
       setLoading(false);
     }
@@ -163,13 +182,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
     setLoading(true);
     setErrorMessage(null);
+    setFirebaseConfigError(null);
     try {
       const { user, profile } = await loginWithEmail(email, password);
       onAuthSuccess(user, profile);
       onClose();
     } catch (err: any) {
       console.error("Email login error:", err);
-      setErrorMessage(formatFirebaseAuthError(err));
+      parseAndSetAuthError(err);
     } finally {
       setLoading(false);
     }
@@ -187,6 +207,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setFirebaseConfigError(null);
 
     if (!fullName.trim()) {
       setErrorMessage("Please provide your full legal name or callsign.");
@@ -245,7 +266,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setTab("verify");
     } catch (err: any) {
       console.error("Registration error:", err);
-      setErrorMessage(formatFirebaseAuthError(err));
+      parseAndSetAuthError(err);
     } finally {
       setLoading(false);
     }
@@ -332,14 +353,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   return (
     <div
       id="msdq-auth-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md overflow-y-auto"
     >
-      <div className="relative w-full max-w-md bg-[#0f141f] border border-[#2a3447] rounded-3xl p-6 md:p-8 shadow-2xl space-y-5 overflow-hidden max-h-[92vh] overflow-y-auto">
+      <div className="relative w-full max-w-md my-auto bg-[#0f141f] border border-[#2a3447] rounded-3xl p-4 sm:p-6 md:p-8 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
         {/* Glow Header */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#10b981] via-[#06b6d4] to-[#3b82f6]" />
 
         {/* Modal Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-[#10b981]/15 border border-[#10b981]/30 flex items-center justify-center shadow-inner">
               <span className="material-symbols-outlined text-[#10b981] text-[22px]">
@@ -355,14 +376,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-[#1e2738] hover:bg-[#28354c] border border-[#2a3447] text-[#94a3b8] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-[18px]">close</span>
-          </button>
+          {currentUser && (
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-xl bg-[#1e2738] hover:bg-[#28354c] border border-[#2a3447] text-[#94a3b8] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-[18px]">close</span>
+            </button>
+          )}
         </div>
 
+        {/* Scrollable Form Body */}
+        <div className="overflow-y-auto overscroll-contain pr-1 flex-1 space-y-4">
         {currentUser ? (
           /* Profile Details (Logged In) */
           <div className="space-y-4 font-mono text-xs">
@@ -473,6 +498,79 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <span className="leading-snug">{errorMessage}</span>
               </div>
             )}
+
+            {/* Interactive Firebase Configuration Guide & Bypass */}
+            {firebaseConfigError && (
+              <div className="p-4 rounded-2xl bg-[#1a1426] border border-[#a855f7]/50 space-y-3 font-mono text-xs">
+                <div className="flex items-center justify-between pb-2 border-b border-[#2e2344]">
+                  <div className="flex items-center gap-2 text-[#c084fc] font-bold">
+                    <span className="material-symbols-outlined text-[18px]">build_circle</span>
+                    <span>
+                      {firebaseConfigError === "operation-not-allowed"
+                        ? "Enable Sign-in Provider in Firebase"
+                        : "Authorize Domain in Firebase"}
+                    </span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#9333ea]/20 text-[#d8b4fe] border border-[#9333ea]/30">
+                    ai-studio-applet-webapp-d2464
+                  </span>
+                </div>
+
+                <p className="text-[#cbd5e1] text-[11px] leading-relaxed">
+                  {firebaseConfigError === "operation-not-allowed"
+                    ? "In your Firebase Console, Authentication providers (Email/Password and Google) are currently disabled. Click below to enable them."
+                    : `Your Vercel deployment domain "${typeof window !== "undefined" ? window.location.hostname : "otocol.vercel.app"}" must be added to Authorized Domains in Firebase.`}
+                </p>
+
+                <div className="space-y-2 pt-1">
+                  <a
+                    href={
+                      firebaseConfigError === "operation-not-allowed"
+                        ? "https://console.firebase.google.com/project/ai-studio-applet-webapp-d2464/authentication/providers"
+                        : "https://console.firebase.google.com/project/ai-studio-applet-webapp-d2464/authentication/settings"
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-2.5 px-3 rounded-xl bg-[#9333ea] hover:bg-[#a855f7] text-white font-bold flex items-center justify-center gap-2 text-center transition-all shadow-md cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                    <span>
+                      {firebaseConfigError === "operation-not-allowed"
+                        ? "1. Open Firebase Sign-in Providers"
+                        : "1. Open Firebase Authorized Domains"}
+                    </span>
+                  </a>
+
+                  {firebaseConfigError === "unauthorized-domain" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const domain = typeof window !== "undefined" ? window.location.hostname : "otocol.vercel.app";
+                        navigator.clipboard?.writeText(domain);
+                        setCopiedDomain(true);
+                        setTimeout(() => setCopiedDomain(false), 2000);
+                      }}
+                      className="w-full py-2 px-3 rounded-xl bg-[#2a3447] hover:bg-[#37455d] text-[#94a3b8] hover:text-white flex items-center justify-center gap-2 transition-all cursor-pointer text-[11px]"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">
+                        {copiedDomain ? "check" : "content_copy"}
+                      </span>
+                      <span>
+                        {copiedDomain
+                          ? "Domain Copied to Clipboard!"
+                          : `Copy Domain: ${typeof window !== "undefined" ? window.location.hostname : "otocol.vercel.app"}`}
+                      </span>
+                    </button>
+                  )}
+
+                  <div className="pt-2 border-t border-[#2e2344] text-[10px] text-[#fca5a5] flex items-center gap-1.5 font-mono">
+                    <span className="material-symbols-outlined text-[14px] text-[#ef4444]">shield</span>
+                    <span>Firebase authentication required. Access is blocked until credentials and domains are configured.</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {successMessage && (
               <div className="p-3 rounded-xl bg-[#10b981]/15 border border-[#10b981]/30 text-[#10b981] text-xs font-mono flex items-start gap-2">
                 <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">check_circle</span>
@@ -899,6 +997,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             )}
           </>
         )}
+        </div>
       </div>
     </div>
   );

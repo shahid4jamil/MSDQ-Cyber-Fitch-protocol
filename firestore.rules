@@ -38,67 +38,90 @@ service cloud.firestore {
 
     // User Sovereign Account Profiles
     match /users/{userId} {
-      allow get: if isValidId(userId);
-      allow list: if true;
-      allow create: if isValidId(userId) && (
-        !isSignedIn() || request.auth.uid == userId || isAdmin()
+      allow get: if isValidId(userId) && isSignedIn() && (
+        request.auth.uid == userId || isAdmin()
       );
-      allow update: if isValidId(userId) && (
-        !isSignedIn() || request.auth.uid == userId || isAdmin()
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isSignedIn() && request.auth.uid == userId && (
+        request.resource.data.role == 'user' || (request.resource.data.role == 'admin' && isAdmin())
+      );
+      allow update: if isValidId(userId) && isSignedIn() && (
+        isAdmin() || (
+          // Self-profile updates: user can update general fields but CANNOT self-elevate role, KYC status, or account standing
+          request.auth.uid == userId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.kycStatus == resource.data.kycStatus &&
+          request.resource.data.status == resource.data.status
+        ) || (
+          // P2P Transfer recipient credit: a signed-in peer can only increase recipient balance, leaving all security/identity fields intact
+          request.auth.uid != userId &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.email == resource.data.email &&
+          request.resource.data.walletAddress == resource.data.walletAddress &&
+          request.resource.data.kycStatus == resource.data.kycStatus &&
+          request.resource.data.status == resource.data.status &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          (request.resource.data.msdqBalance >= resource.data.msdqBalance)
+        )
       );
       allow delete: if isAdmin();
     }
 
     // Immutable Ledger Transactions
     match /transactions/{txId} {
-      allow get: if isValidId(txId) && (
-        !isSignedIn() || resource.data.userId == request.auth.uid || isAdmin()
+      allow get: if isValidId(txId) && isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
       );
       allow list: if isSignedIn() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
-      allow create: if isValidId(txId) && (
-        !isSignedIn() || request.resource.data.userId == request.auth.uid || isAdmin()
+      allow create: if isValidId(txId) && isSignedIn() && (
+        request.resource.data.userId == request.auth.uid ||
+        (request.resource.data.type in ['receive', 'reward', 'referral_bonus', 'task_reward'] && isSignedIn()) ||
+        isAdmin()
       );
       allow update, delete: if isAdmin();
     }
 
     // KYC Identity Verification Applications
     match /kyc_applications/{appId} {
-      allow get: if isValidId(appId) && (
-        !isSignedIn() || resource.data.userId == request.auth.uid || isAdmin()
+      allow get: if isValidId(appId) && isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
       );
       allow list: if isAdmin();
-      allow create: if isValidId(appId) && (
-        !isSignedIn() || request.resource.data.userId == request.auth.uid || isAdmin()
+      allow create: if isValidId(appId) && isSignedIn() && (
+        request.resource.data.userId == request.auth.uid || isAdmin()
       );
-      allow update: if isValidId(appId) && (
-        (!isSignedIn() || resource.data.userId == request.auth.uid || isAdmin())
+      allow update: if isValidId(appId) && isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
       );
       allow delete: if isAdmin();
     }
 
     // Active Game Sessions for State Resumption & Matchmaking
     match /game_sessions/{sessionId} {
-      allow get: if isValidId(sessionId) && (
-        !isSignedIn() || resource.data.userId == request.auth.uid || isAdmin()
+      allow get: if isValidId(sessionId) && isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
       );
       allow list: if isSignedIn() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
-      allow create: if isValidId(sessionId) &&
+      allow create: if isValidId(sessionId) && isSignedIn() &&
         isValidGameSession(request.resource.data) &&
-        (!isSignedIn() || request.resource.data.userId == request.auth.uid || isAdmin());
-      allow update: if isValidId(sessionId) &&
+        (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isValidId(sessionId) && isSignedIn() &&
         isValidGameSession(request.resource.data) &&
-        (!isSignedIn() || resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isValidId(sessionId) &&
-        (!isSignedIn() || resource.data.userId == request.auth.uid || isAdmin());
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isValidId(sessionId) && isSignedIn() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     // Admin configuration node
     match /system_config/{configId} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
@@ -111,25 +134,31 @@ service cloud.firestore {
 
     // Authoritative Mining Sessions
     match /mining_sessions/{sessionId} {
-      allow get: if isValidId(sessionId) && (
-        !isSignedIn() || resource.data.userId == request.auth.uid || isAdmin()
+      allow get: if isValidId(sessionId) && isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
       );
       allow list: if isSignedIn() && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
-      allow create: if isValidId(sessionId) && (
-        !isSignedIn() || request.resource.data.userId == request.auth.uid || isAdmin()
+      allow create: if isValidId(sessionId) && isSignedIn() && (
+        request.resource.data.userId == request.auth.uid || isAdmin()
       );
-      allow update: if isValidId(sessionId) && (
-        !isSignedIn() || resource.data.userId == request.auth.uid || isAdmin()
+      allow update: if isValidId(sessionId) && isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
       );
       allow delete: if isAdmin();
     }
 
     // User Subcollections (e.g. referrals)
     match /users/{userId}/referrals/{refId} {
-      allow read: if !isSignedIn() || request.auth.uid == userId || request.auth.uid == refId || isAdmin();
-      allow write: if !isSignedIn() || request.auth.uid == userId || request.auth.uid == refId || isAdmin();
+      allow read: if isSignedIn() && (request.auth.uid == userId || request.auth.uid == refId || isAdmin());
+      allow write: if isSignedIn() && (request.auth.uid == userId || request.auth.uid == refId || isAdmin());
+    }
+
+    // Dedicated Admins Collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn() && (request.auth.uid == adminId || isAdmin());
+      allow write: if isAdmin();
     }
   }
 }

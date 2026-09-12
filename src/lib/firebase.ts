@@ -242,7 +242,7 @@ export function generateUserId(uid: string): string {
 export async function sendEmailVerificationCode(
   email: string,
   userId?: string
-): Promise<{ success: boolean; message: string; cooldownSeconds: number; expiresAt: number; previewCode?: string }> {
+): Promise<{ success: boolean; message: string; cooldownSeconds: number; expiresAt: number }> {
   const res = await fetch("/api/auth/send-verification-code", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -275,7 +275,7 @@ export async function verifyEmailCode(
 export async function resendEmailVerificationCode(
   email: string,
   userId?: string
-): Promise<{ success: boolean; message: string; cooldownSeconds: number; expiresAt: number; previewCode?: string }> {
+): Promise<{ success: boolean; message: string; cooldownSeconds: number; expiresAt: number }> {
   const res = await fetch("/api/auth/resend-code", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

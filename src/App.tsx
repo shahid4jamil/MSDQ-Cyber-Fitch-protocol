@@ -49,6 +49,7 @@ import {
   subscribeToAuth,
   UserProfile,
   isUserAdmin,
+  signOutUser,
   startMiningSession,
   claimMiningSessionReward,
   claimDailyCheckIn,
@@ -286,6 +287,13 @@ export default function App() {
     to: string,
     amount: number
   ): Promise<{ success: boolean; error?: string }> => {
+    if (!currentUser) {
+      return {
+        success: false,
+        error: "Authentication required to dispatch transfers.",
+      };
+    }
+
     const gasFee = 0.10;
     const totalDeducted = amount + gasFee;
     if (totalDeducted > protocolBalance) {
@@ -295,24 +303,55 @@ export default function App() {
       };
     }
 
-    setProtocolBalance((prev) => prev - totalDeducted);
-    const newTx: Transaction = {
-      id: `tx-${Date.now()}`,
-      type: "send",
-      amount: -amount,
-      usdValue: amount * 0.5,
-      timestamp: "Just now",
-      status: "confirmed",
-      txHash: `0x${Math.random().toString(16).slice(2, 8)}...${Math.random().toString(16).slice(2, 5)}`,
-      note: `Transfer to ${to.slice(0, 10)} (Gas Fee: 0.10 MSDQ)`,
-    };
-    setTransactions((prev) => [newTx, ...prev]);
-    addAuditLog(
-      "WITHDRAWAL_DISBURSE",
-      "info",
-      `P2P transfer of ${amount} MSDQ (Gas: 0.10 MSDQ) dispatched to ${to}.`
-    );
-    return { success: true };
+    try {
+      const resp = await fetch("/api/wallet/transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderUid: currentUser.uid,
+          senderAddress: userProfile?.walletAddress || currentUser.uid,
+          recipientAddress: to.trim().toUpperCase(),
+          amount,
+        }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || !data.success) {
+        return {
+          success: false,
+          error: data.error || "Failed to execute server-side transfer.",
+        };
+      }
+
+      if (typeof data.newBalance === "number") {
+        setProtocolBalance(data.newBalance);
+      } else {
+        setProtocolBalance((prev) => Math.max(0, prev - totalDeducted));
+      }
+
+      const newTx: Transaction = {
+        id: `tx-${Date.now()}`,
+        type: "send",
+        amount: -amount,
+        usdValue: amount * 0.5,
+        timestamp: "Just now",
+        status: "confirmed",
+        txHash: data.txHash || `0x${Math.random().toString(16).slice(2, 8)}...`,
+        note: `Transfer to ${to.slice(0, 10)} (Gas Fee: 0.10 MSDQ)`,
+      };
+      setTransactions((prev) => [newTx, ...prev]);
+      addAuditLog(
+        "WITHDRAWAL_DISBURSE",
+        "info",
+        `P2P transfer of ${amount} MSDQ (Gas: 0.10 MSDQ) dispatched to ${to}.`
+      );
+      return { success: true };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || "Network error executing transfer.",
+      };
+    }
   };
 
   const handleBidirectionalConvert = (
@@ -420,11 +459,21 @@ export default function App() {
     );
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    try {
+      await signOutUser();
+    } catch {}
+    try {
+      localStorage.removeItem("msdq_current_user");
+      sessionStorage.clear();
+      window.location.hash = "";
+      window.history.replaceState(null, "", "/");
+    } catch {}
     setCurrentUser(null);
     setUserProfile(null);
     setKycStatus("NOT_SUBMITTED");
     setIsAuthOpen(false);
+    setCurrentScreen("dash");
     addAuditLog("SECURITY_ENCLAVE", "info", "User signed out from node terminal.");
   };
 
@@ -497,26 +546,57 @@ export default function App() {
     return true;
   };
 
-  const handleClaimTask = (taskId: string) => {
+  const handleClaimTask = async (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task || task.claimed) return;
 
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, claimed: true } : t))
-    );
-    setProtocolBalance((prev) => prev + task.reward);
+    if (!currentUser) {
+      setIsAuthOpen(true);
+      return;
+    }
 
-    const newTx: Transaction = {
-      id: `tx-${Date.now()}`,
-      type: "receive",
-      amount: task.reward,
-      usdValue: task.reward * 0.5,
-      timestamp: "Just now",
-      status: "confirmed",
-      txHash: `0x${Math.random().toString(16).slice(2, 8)}...`,
-      note: `Task Reward: ${task.title}`,
-    };
-    setTransactions((prev) => [newTx, ...prev]);
+    try {
+      const resp = await fetch("/api/rewards/claim-task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid: currentUser.uid,
+          taskId: task.id,
+          rewardAmount: task.reward,
+          taskTitle: task.title,
+        }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || !data.success) {
+        alert(data.error || "Failed to claim task bounty.");
+        return;
+      }
+
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, claimed: true } : t))
+      );
+
+      if (typeof data.newBalance === "number") {
+        setProtocolBalance(data.newBalance);
+      } else {
+        setProtocolBalance((prev) => prev + task.reward);
+      }
+
+      const newTx: Transaction = {
+        id: `tx-${Date.now()}`,
+        type: "receive",
+        amount: task.reward,
+        usdValue: task.reward * 0.5,
+        timestamp: "Just now",
+        status: "confirmed",
+        txHash: `0x${Math.random().toString(16).slice(2, 8)}...`,
+        note: `Task Reward: ${task.title}`,
+      };
+      setTransactions((prev) => [newTx, ...prev]);
+    } catch (err: any) {
+      alert("Network error claiming task bounty.");
+    }
   };
 
   const handleClaimVault = () => {
@@ -538,23 +618,47 @@ export default function App() {
     setTransactions((prev) => [newTx, ...prev]);
   };
 
-  const handleClaimStreak = (day: number) => {
-    const rewards = [5, 10, 15, 20, 25, 50, 100];
-    const reward = rewards[day - 1] || 10;
-    setStreakClaimedToday(true);
-    setProtocolBalance((prev) => prev + reward);
+  const handleClaimStreak = async (day: number) => {
+    if (!currentUser) {
+      setIsAuthOpen(true);
+      return;
+    }
 
-    const newTx: Transaction = {
-      id: `tx-${Date.now()}`,
-      type: "receive",
-      amount: reward,
-      usdValue: reward * 0.5,
-      timestamp: "Just now",
-      status: "confirmed",
-      txHash: `0x${Math.random().toString(16).slice(2, 8)}...`,
-      note: `Day ${day} Check-In Streak Bonus`,
-    };
-    setTransactions((prev) => [newTx, ...prev]);
+    try {
+      const resp = await fetch("/api/rewards/checkin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: currentUser.uid }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || !data.success) {
+        alert(data.error || "Daily check-in failed or already completed today.");
+        return;
+      }
+
+      const reward = data.reward || 0.50;
+      setStreakClaimedToday(true);
+      if (typeof data.newBalance === "number") {
+        setProtocolBalance(data.newBalance);
+      } else {
+        setProtocolBalance((prev) => prev + reward);
+      }
+
+      const newTx: Transaction = {
+        id: `tx-${Date.now()}`,
+        type: "receive",
+        amount: reward,
+        usdValue: reward * 0.5,
+        timestamp: "Just now",
+        status: "confirmed",
+        txHash: `0x${Math.random().toString(16).slice(2, 8)}...`,
+        note: `Day ${data.streak || day} Server-Verified Check-In Streak Bonus`,
+      };
+      setTransactions((prev) => [newTx, ...prev]);
+    } catch (err: any) {
+      alert("Network error processing daily check-in.");
+    }
   };
 
   const handlePingNode = (nodeId: string) => {
@@ -571,8 +675,12 @@ export default function App() {
   };
 
   const handleConsolidateSubledgers = () => {
-    setProtocolBalance((prev) => prev + 120);
-    alert("Sub-ledger partitions consolidated into Master Custodial Vault.");
+    addAuditLog(
+      "CONSENSUS_VOTE",
+      "info",
+      "Sub-ledger partitions verified and synchronized with consensus state."
+    );
+    alert("Sub-ledger partitions cryptographically verified and synchronized with Master Custodial Vault.");
   };
 
   const addAuditLog = (
@@ -655,6 +763,63 @@ export default function App() {
 
   const unclaimedRewardsCount = tasks.filter((t) => t.completed && !t.claimed).length;
   const unreadNotifCount = notifications.filter((n) => !n.read).length;
+
+  // Strict Authentication Gate:
+  // If no authenticated user exists, prevent all access to private dashboard, mining, wallet, and games.
+  if (!currentUser) {
+    if (currentScreen === "admin") {
+      return (
+        <div className="min-h-screen bg-[#0a0e17] text-[#dfe2ee] font-sans antialiased flex flex-col selection:bg-[#10b981] selection:text-[#0f172a]">
+          <main className="flex-1 w-full max-w-7xl mx-auto px-2 sm:px-4 py-4 sm:py-6">
+            <AdminGatewayScreen
+              currentUser={currentUser}
+              userProfile={userProfile}
+              onAdminAuthSuccess={(user, profile) => {
+                setCurrentUser(user);
+                setUserProfile(profile);
+              }}
+              onReturnToDashboard={() => setCurrentScreen("dash")}
+              auditLogs={auditLogs}
+              enclaveUsers={enclaveUsers}
+              onAddAuditLog={(log) => setAuditLogs((prev) => [log, ...prev])}
+              onUpdateUserStatus={handleUpdateUserStatus}
+              onAdjustUserBalance={handleAdjustUserBalance}
+              baseMiningRate={baseRate}
+              onUpdateBaseMiningRate={(rate) => setBaseRate(rate)}
+              transactions={transactions}
+              onUpdateAuditLogStatus={handleUpdateAuditLogStatus}
+              conversionRate={conversionRate}
+              onUpdateConversionRate={(rate) => setConversionRate(rate)}
+              msdqToPtsRate={msdqToPtsRate}
+              onUpdateMsdqToPtsRate={(rate) => setMsdqToPtsRate(rate)}
+              kycApplications={kycApplications}
+              onReviewKyc={handleReviewKyc}
+              announcements={announcements}
+              onAddAnnouncement={handleAddAnnouncement}
+              onToggleAnnouncement={handleToggleAnnouncement}
+              onSendNotification={handleSendNotification}
+              gameConfigs={gameConfigs}
+              onToggleGame={handleToggleGame}
+              onUpdateGameLimits={handleUpdateGameLimits}
+            />
+          </main>
+        </div>
+      );
+    }
+
+    return (
+      <div className="min-h-screen bg-[#0a0e17] text-[#dfe2ee] font-sans antialiased flex flex-col justify-center items-center p-3 sm:p-4 selection:bg-[#10b981] selection:text-[#0f172a]">
+        <AuthModal
+          isOpen={true}
+          onClose={() => {}}
+          currentUser={null}
+          userProfile={null}
+          onAuthSuccess={handleAuthSuccess}
+          onSignOut={handleSignOut}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0e17] text-[#dfe2ee] font-sans antialiased flex flex-col selection:bg-[#10b981] selection:text-[#0f172a]">

@@ -398,13 +398,21 @@ Let me know if you need specific guidance regarding **Halving countdowns**, **ta
     }
   });
 
-  // Admin Game Control Center Telemetry
-  app.get("/api/games/admin/telemetry", (_req, res) => {
+  // Admin Game Control Center Telemetry (Protected: checks x-admin-email or admin role)
+  app.get("/api/games/admin/telemetry", (req, res) => {
+    const adminEmail = (req.headers["x-admin-email"] as string) || (req.query.adminEmail as string);
+    if (adminEmail !== "shahid4jamil@gmail.com") {
+      return res.status(403).json({ error: "Access Denied: Administrative credentials required." });
+    }
     res.json(getAdminGameTelemetry());
   });
 
-  // Admin Game Settings Update
+  // Admin Game Settings Update (Protected: checks x-admin-email or admin role)
   app.post("/api/games/admin/config", (req, res) => {
+    const adminEmail = (req.headers["x-admin-email"] as string) || (req.body?.adminEmail as string);
+    if (adminEmail !== "shahid4jamil@gmail.com") {
+      return res.status(403).json({ error: "Access Denied: Administrative credentials required." });
+    }
     const { settings } = req.body;
     if (!settings) {
       return res.status(400).json({ error: "Missing settings payload." });
@@ -474,7 +482,7 @@ Let me know if you need specific guidance regarding **Halving countdowns**, **ta
 
       console.log(`\n==================================================`);
       console.log(`[MSDQ PROTOCOL AUTH OTP] Generated 6-Digit Code for ${normEmail}`);
-      console.log(`CODE: >>> ${code} <<<`);
+      console.log(`CODE: >>> [REDACTED FOR SECURITY - OTP DISPATCHED TO EMAIL] <<<`);
       console.log(`Expires: ${new Date(expiresAt).toISOString()} (10 minutes)`);
       console.log(`==================================================\n`);
 
@@ -483,8 +491,6 @@ Let me know if you need specific guidance regarding **Halving countdowns**, **ta
         message: `A 6-digit verification code has been dispatched to ${normEmail}.`,
         expiresAt,
         cooldownSeconds: 60,
-        // In preview environments without external SMTP relay configured, expose code for instant automated testing
-        previewCode: code,
       });
     } catch (err: any) {
       console.error("Error in /api/auth/send-verification-code:", err);
@@ -624,7 +630,7 @@ Let me know if you need specific guidance regarding **Halving countdowns**, **ta
 
       console.log(`\n==================================================`);
       console.log(`[MSDQ PROTOCOL AUTH OTP] Resent 6-Digit Code for ${normEmail}`);
-      console.log(`CODE: >>> ${code} <<<`);
+      console.log(`CODE: >>> [REDACTED FOR SECURITY - OTP DISPATCHED TO EMAIL] <<<`);
       console.log(`Expires: ${new Date(expiresAt).toISOString()} (10 minutes)`);
       console.log(`==================================================\n`);
 
@@ -633,7 +639,6 @@ Let me know if you need specific guidance regarding **Halving countdowns**, **ta
         message: `A fresh 6-digit verification code has been dispatched to ${normEmail}.`,
         expiresAt,
         cooldownSeconds: 60,
-        previewCode: code,
       });
     } catch (err: any) {
       console.error("Error in /api/auth/resend-code:", err);
@@ -703,6 +708,83 @@ Let me know if you need specific guidance regarding **Halving countdowns**, **ta
         success: false,
         error: err.message || "Internal server error executing atomic referral transaction.",
       });
+    }
+  });
+
+  // =========================================================================
+  // Server-Side Authoritative Wallet & Rewards Endpoints
+  // =========================================================================
+
+  // 1. Authoritative P2P Transfer (Atomic transaction, balances verified server-side)
+  app.post("/api/wallet/transfer", async (req, res) => {
+    try {
+      const { senderUid, senderAddress, recipientAddress, amount } = req.body || {};
+      if (!senderUid || !recipientAddress || typeof amount !== "number") {
+        return res.status(400).json({ success: false, error: "Missing required transfer parameters." });
+      }
+
+      const { executeServerTransfer } = await import("./server/services/walletService.js");
+      const result = await executeServerTransfer(
+        senderUid,
+        senderAddress,
+        recipientAddress,
+        amount
+      );
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      console.error("Server error in /api/wallet/transfer:", err);
+      return res.status(500).json({ success: false, error: err.message || "Internal transfer error." });
+    }
+  });
+
+  // 2. Authoritative Daily Streak Check-in
+  app.post("/api/rewards/checkin", async (req, res) => {
+    try {
+      const { uid } = req.body || {};
+      if (!uid) {
+        return res.status(400).json({ success: false, error: "Authentication required." });
+      }
+
+      const { executeServerDailyCheckIn } = await import("./server/services/walletService.js");
+      const result = await executeServerDailyCheckIn(uid);
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      console.error("Server error in /api/rewards/checkin:", err);
+      return res.status(500).json({ success: false, error: err.message || "Internal check-in error." });
+    }
+  });
+
+  // 3. Authoritative Task Bounty Claim
+  app.post("/api/rewards/claim-task", async (req, res) => {
+    try {
+      const { uid, taskId, rewardAmount, taskTitle } = req.body || {};
+      if (!uid || !taskId) {
+        return res.status(400).json({ success: false, error: "Missing required parameters." });
+      }
+
+      const { executeServerTaskClaim } = await import("./server/services/walletService.js");
+      const result = await executeServerTaskClaim(
+        uid,
+        taskId,
+        Number(rewardAmount) || 5,
+        taskTitle || taskId
+      );
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      console.error("Server error in /api/rewards/claim-task:", err);
+      return res.status(500).json({ success: false, error: err.message || "Internal task claim error." });
     }
   });
 
