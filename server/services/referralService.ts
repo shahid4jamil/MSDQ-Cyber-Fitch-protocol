@@ -254,11 +254,12 @@ export async function applyReferralServer(
       const updatedCommission = Number((currentCommission + REFERRAL_REWARD_MSDQ).toFixed(4));
 
       // WRITES: Apply atomic state mutations
-      // 1. Increment referrer's count & balance
+      // 1. Increment referrer's count & balance (+100 MSDQ)
       transaction.update(referrerRef, {
         totalReferrals,
         activeReferrals,
         msdqBalance: updatedBalance,
+        balanceMSDQ: updatedBalance,
         referralCommissionEarned: updatedCommission,
         updatedAt: Date.now(),
       });
@@ -274,14 +275,18 @@ export async function applyReferralServer(
         joinedAt: Date.now(),
       });
 
-      // 3. Update new user profile with verified referrer link
+      // 3. Update new user profile with verified referrer link AND credit +100 MSDQ welcome reward
+      const newUserCurBalance = newUserData.msdqBalance ?? newUserData.balanceMSDQ ?? 0.0;
+      const newUserNewBalance = Number((newUserCurBalance + REFERRAL_REWARD_MSDQ).toFixed(4));
       transaction.update(newUserRef, {
         referredByUserId: referrerId,
         referredByReferralCode: cleanCode,
+        msdqBalance: newUserNewBalance,
+        balanceMSDQ: newUserNewBalance,
         updatedAt: Date.now(),
       });
 
-      // 4. Create immutable ledger entry for audit trail with deduplication ID
+      // 4. Create immutable ledger entry for Referrer (+100 MSDQ)
       const randomHash = Array.from({ length: 32 }, () =>
         Math.floor(Math.random() * 16).toString(16)
       ).join("");
@@ -298,6 +303,27 @@ export async function applyReferralServer(
         status: "completed",
         txHash: `0x${randomHash}`,
         note: `Referral Reward: +100 MSDQ credited for verified referral of node #${newUserData.userId || newUserId.slice(0, 6)}`,
+      });
+
+      // 5. Create immutable ledger entry for New User (+100 MSDQ welcome bonus)
+      const txIdNewUser = `ref-welcome-${newUserId}`;
+      const txRefNewUser = doc(db, "transactions", txIdNewUser);
+      const randomHash2 = Array.from({ length: 32 }, () =>
+        Math.floor(Math.random() * 16).toString(16)
+      ).join("");
+
+      transaction.set(txRefNewUser, {
+        id: txIdNewUser,
+        userId: newUserId,
+        type: "REFERRAL_WELCOME_BONUS",
+        amount: REFERRAL_REWARD_MSDQ,
+        usdValue: Number((REFERRAL_REWARD_MSDQ * 0.5).toFixed(2)),
+        referrerUserId: referrerId,
+        referredUserId: newUserId,
+        timestamp: Date.now(),
+        status: "completed",
+        txHash: `0x${randomHash2}`,
+        note: `Referral Welcome Grant: +100 MSDQ credited for joining with referral code ${cleanCode}`,
       });
 
       resultPayload = {

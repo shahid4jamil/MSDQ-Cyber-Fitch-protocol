@@ -116,13 +116,61 @@ export interface AdminAuditRecord {
 }
 
 // -------------------------------------------------------------
-// Core Firebase Initialization
+// Core Firebase Initialization with Environment Variable Fallbacks
 // -------------------------------------------------------------
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : undefined;
+
+const effectiveConfig = {
+  apiKey: metaEnv?.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
+  authDomain: metaEnv?.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+  projectId: metaEnv?.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
+  storageBucket: metaEnv?.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
+  messagingSenderId: metaEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
+  appId: metaEnv?.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
+  firestoreDatabaseId: metaEnv?.VITE_FIREBASE_DATABASE_ID || (firebaseConfig as any).firestoreDatabaseId,
+};
+
+const app = getApps().length === 0 ? initializeApp(effectiveConfig) : getApp();
 export const auth = getAuth(app);
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+export const db = effectiveConfig.firestoreDatabaseId
+  ? getFirestore(app, effectiveConfig.firestoreDatabaseId)
   : getFirestore(app);
+
+// -------------------------------------------------------------
+// Formatted User-Friendly Firebase Auth Errors
+// -------------------------------------------------------------
+export function formatFirebaseAuthError(err: any): string {
+  if (!err) return "An unexpected authentication error occurred.";
+  const code = err.code || "";
+  const msg = err.message || "";
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "otocol.vercel.app";
+
+  if (code === "auth/unauthorized-domain" || msg.includes("auth/unauthorized-domain")) {
+    return `Firebase domain authorization error: Domain "${hostname}" is not authorized in your Firebase project. To resolve, open Firebase Console -> Authentication -> Settings -> Authorized domains, and add "${hostname}" (and "otocol.vercel.app").`;
+  }
+  if (code === "auth/operation-not-allowed" || msg.includes("auth/operation-not-allowed")) {
+    return "This sign-in method is currently disabled in your Firebase project. Please enable Email/Password and Google sign-in methods in Firebase Console -> Authentication -> Sign-in method.";
+  }
+  if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") {
+    return "Invalid email address or master password. Please verify your credentials.";
+  }
+  if (code === "auth/email-already-in-use") {
+    return "An account is already registered with this email address. Please sign in or use password reset.";
+  }
+  if (code === "auth/weak-password") {
+    return "Password does not meet protocol security standards. It must contain at least 8 characters with numbers, uppercase and lowercase letters.";
+  }
+  if (code === "auth/too-many-requests") {
+    return "Access to this node account has been temporarily rate-limited due to multiple failed attempts. Please wait a few minutes or reset your password.";
+  }
+  if (code === "auth/popup-closed-by-user") {
+    return "Sign-in popup was closed before completing verification. Please click again to retry.";
+  }
+  if (code === "auth/network-request-failed") {
+    return "Network connection issue. Please check your internet connection.";
+  }
+  return err.message || "Authentication failed. Please try again.";
+}
 
 // -------------------------------------------------------------
 // Firestore Error Logging Helper (Skill Mandated)
@@ -166,17 +214,78 @@ export function getDb() {
 }
 
 // -------------------------------------------------------------
-// Deterministic Generators for Unique User Identity
+// Deterministic Generators for Unique User Identity (MSDQ-XXXXXX)
 // -------------------------------------------------------------
 export function generateUserId(uid: string): string {
-  // Generate public user ID in format MSDQ-XXXXXX
-  let hash = 0;
+  // Format: MSDQ-XXXXXX (e.g. MSDQ-7K4P92) - 6 alphanumeric uppercase chars
+  const charset = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // 32 unambiguous characters
+  let hash1 = 5381;
+  let hash2 = 52711;
   for (let i = 0; i < uid.length; i++) {
-    hash = (hash << 5) - hash + uid.charCodeAt(i);
-    hash |= 0;
+    const c = uid.charCodeAt(i);
+    hash1 = ((hash1 << 5) + hash1) ^ c;
+    hash2 = ((hash2 << 5) + hash2) ^ (c * 31);
   }
-  const numericStr = Math.abs(hash).toString().padStart(6, "0").slice(0, 6);
-  return `MSDQ-${numericStr}`;
+  let combined = Math.abs(hash1 ^ (hash2 << 7));
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += charset[combined % charset.length];
+    combined = Math.floor(combined / charset.length) ^ (uid.charCodeAt(i % uid.length) * 19);
+    combined = Math.abs(combined);
+  }
+  return `MSDQ-${code}`;
+}
+
+// -------------------------------------------------------------
+// Email Verification OTP API Client Helpers
+// -------------------------------------------------------------
+export async function sendEmailVerificationCode(
+  email: string,
+  userId?: string
+): Promise<{ success: boolean; message: string; cooldownSeconds: number; expiresAt: number; previewCode?: string }> {
+  const res = await fetch("/api/auth/send-verification-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, userId }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || "Failed to dispatch verification code.");
+  }
+  return data;
+}
+
+export async function verifyEmailCode(
+  email: string,
+  code: string,
+  userId?: string
+): Promise<{ success: boolean; message: string; verified?: boolean }> {
+  const res = await fetch("/api/auth/verify-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code, userId }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || "Failed to verify code.");
+  }
+  return data;
+}
+
+export async function resendEmailVerificationCode(
+  email: string,
+  userId?: string
+): Promise<{ success: boolean; message: string; cooldownSeconds: number; expiresAt: number; previewCode?: string }> {
+  const res = await fetch("/api/auth/resend-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, userId }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || "Failed to resend verification code.");
+  }
+  return data;
 }
 
 export function generateWalletAddress(uid: string): string {
@@ -414,9 +523,13 @@ export async function validateAndApplyReferralServer(params: {
           joinedAt: Date.now(),
         });
 
+        const newUserCur = (uSnap.data() as UserProfile)?.msdqBalance || 0.0;
+        const newUserNew = Number((newUserCur + reward).toFixed(4));
         tx.update(newUserRef, {
           referredByUserId: referrerId,
           referredByReferralCode: cleanCode,
+          msdqBalance: newUserNew,
+          balanceMSDQ: newUserNew,
           updatedAt: Date.now(),
         });
 
@@ -434,6 +547,25 @@ export async function validateAndApplyReferralServer(params: {
             Math.floor(Math.random() * 16).toString(16)
           ).join("")}`,
           note: `Referral Reward: +100 MSDQ credited for verified referral of node #${newUserId.slice(0, 6)}`,
+        });
+
+        // Also create transaction ledger entry for new user (+100 MSDQ welcome bonus)
+        const txIdNewUser = `ref-welcome-${newUserId}`;
+        const txRefNewUser = doc(db, "transactions", txIdNewUser);
+        tx.set(txRefNewUser, {
+          id: txIdNewUser,
+          userId: newUserId,
+          type: "REFERRAL_WELCOME_BONUS",
+          amount: 100.0,
+          usdValue: 50.0,
+          referrerUserId: referrerId,
+          referredUserId: newUserId,
+          timestamp: Date.now(),
+          status: "completed",
+          txHash: `0x${Array.from({ length: 32 }, () =>
+            Math.floor(Math.random() * 16).toString(16)
+          ).join("")}`,
+          note: `Referral Welcome Grant: +100 MSDQ credited for joining with referral code ${cleanCode}`,
         });
       });
 
