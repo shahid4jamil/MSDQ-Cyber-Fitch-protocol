@@ -38,14 +38,23 @@ import { GamesScreen } from "./components/GamesScreen";
 import { RewardsScreen } from "./components/RewardsScreen";
 import { RanksScreen } from "./components/RanksScreen";
 import { AiAssistantModal } from "./components/AiAssistantModal";
-import { AdminConsoleModal } from "./components/AdminConsoleModal";
-import { ReceiveModal } from "./components/Modals";
+import { AdminGatewayScreen } from "./components/admin/AdminGatewayScreen";
+import { ReceiveModal } from "./components/wallet/ReceiveModal";
 import { SendModal } from "./components/wallet/SendModal";
 import { PtsMsdqConvertModal } from "./components/wallet/PtsMsdqConvertModal";
 import { AuthModal } from "./components/auth/AuthModal";
 import { KycVerificationModal } from "./components/kyc/KycVerificationModal";
 import { KycRecord } from "./components/admin/AdminExpandedTabs";
-import { subscribeToAuth, UserProfile } from "./lib/firebase";
+import {
+  subscribeToAuth,
+  UserProfile,
+  isUserAdmin,
+  startMiningSession,
+  claimMiningSessionReward,
+  claimDailyCheckIn,
+  subscribeToUserTransactions,
+  subscribeToUserReferrals,
+} from "./lib/firebase";
 import { User } from "firebase/auth";
 import { BoostModal } from "./components/dashboard/BoostModal";
 import { RewardedAdModal } from "./components/dashboard/RewardedAdModal";
@@ -84,16 +93,16 @@ export default function App() {
   // Navigation State
   const [currentScreen, setCurrentScreen] = useState<ScreenType>("dash");
 
-  // Protocol State
-  const [protocolBalance, setProtocolBalance] = useState<number>(14852.4);
-  const [gameVaultBalance, setGameVaultBalance] = useState<number>(1200); // PTS Balance
-  const [claimableVault, setClaimableVault] = useState<number>(145.5);
+  // Protocol State - ZERO default for honest production accounts
+  const [protocolBalance, setProtocolBalance] = useState<number>(0.0);
+  const [gameVaultBalance, setGameVaultBalance] = useState<number>(0); // PTS Balance
+  const [claimableVault, setClaimableVault] = useState<number>(0.0);
 
   // Mining Engine State
-  const [isMining, setIsMining] = useState<boolean>(true);
+  const [isMining, setIsMining] = useState<boolean>(false);
   const [baseRate, setBaseRate] = useState<number>(1.0);
   const [boostRate, setBoostRate] = useState<number>(0.5);
-  const [sessionMined, setSessionMined] = useState<number>(3.75);
+  const [sessionMined, setSessionMined] = useState<number>(0.0);
   const [activeBoostPercent, setActiveBoostPercent] = useState<number>(0);
 
   // Conversion & GameFi Configuration State
@@ -110,31 +119,21 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [kycStatus, setKycStatus] = useState<
     "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "NEEDS_RESUBMISSION"
-  >("VERIFIED");
-  const [kycApplications, setKycApplications] = useState<KycRecord[]>([
-    {
-      id: "kyc-001",
-      userId: "user-8842",
-      userEmail: "miner.8842@msdq.network",
-      legalName: "Alexander Vance",
-      dob: "1994-06-12",
-      nationality: "United Kingdom",
-      idType: "Passport",
-      idNumber: "UK89124018A",
-      status: "VERIFIED",
-      submittedAt: "Yesterday 18:20 UTC",
-    },
-  ]);
+  >("NOT_SUBMITTED");
+  const [kycApplications, setKycApplications] = useState<KycRecord[]>([]);
+
+  // Calculate Admin authorization based on cryptographic identity & super-admin email
+  const isAdmin = isUserAdmin(currentUser, userProfile);
 
   // Data Collections
-  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
-  const [referrals, setReferrals] = useState<NodeReferral[]>(INITIAL_REFERRALS);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [referrals, setReferrals] = useState<NodeReferral[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>(INITIAL_TASKS);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
   const [enclaveUsers, setEnclaveUsers] = useState<EnclaveUser[]>(INITIAL_ENCLAVE_USERS);
 
   // Rewards Streak State
-  const [streakDay, setStreakDay] = useState<number>(6);
+  const [streakDay, setStreakDay] = useState<number>(1);
   const [streakClaimedToday, setStreakClaimedToday] = useState<boolean>(false);
 
   // Modals Visibility
@@ -149,65 +148,138 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isKycOpen, setIsKycOpen] = useState(false);
 
+  // Direct URL Hash Detection for Admin Access (#admin or /admin)
+  useEffect(() => {
+    const handleHashCheck = () => {
+      const path = window.location.hash.replace("#", "").replace("/", "").toLowerCase();
+      if (path === "admin") {
+        setCurrentScreen("admin");
+      }
+    };
+    handleHashCheck();
+    window.addEventListener("hashchange", handleHashCheck);
+    return () => window.removeEventListener("hashchange", handleHashCheck);
+  }, []);
+
   // Listen to Firebase Auth state
   useEffect(() => {
     const unsubscribe = subscribeToAuth((user, profile) => {
       setCurrentUser(user);
       setUserProfile(profile);
-      if (profile?.kycStatus) {
-        setKycStatus(profile.kycStatus);
-      }
-      if (profile?.msdqBalance !== undefined) {
-        setProtocolBalance(profile.msdqBalance);
-      } else if (profile?.balanceMSDQ !== undefined) {
-        setProtocolBalance(profile.balanceMSDQ);
+      if (profile) {
+        setKycStatus(profile.kycStatus || "NOT_SUBMITTED");
+        setProtocolBalance(profile.msdqBalance ?? profile.balanceMSDQ ?? 0.0);
+        setGameVaultBalance(profile.ptsBalance ?? 0);
+        setIsMining(profile.miningStatus === "mining");
+        if (profile.checkInStreak !== undefined) {
+          setStreakDay(profile.checkInStreak);
+        }
+        const todayStr = new Date().toISOString().split("T")[0];
+        setStreakClaimedToday(profile.lastCheckInDate === todayStr);
+      } else {
+        setProtocolBalance(0.0);
+        setGameVaultBalance(0);
+        setIsMining(false);
+        setKycStatus("NOT_SUBMITTED");
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // Background Mining Accrual
+  // Real-time Firestore Subscriptions for User Transactions & Referrals
   useEffect(() => {
-    if (!isMining) return;
-    const interval = setInterval(() => {
-      const delta = ((baseRate + boostRate) / 3600) * 1.0;
-      setSessionMined((prev) => prev + delta);
-      setProtocolBalance((prev) => prev + delta);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isMining, baseRate, boostRate]);
+    if (!currentUser) {
+      setTransactions([]);
+      setReferrals([]);
+      return;
+    }
+    const unsubTx = subscribeToUserTransactions(currentUser.uid, (txs) => {
+      setTransactions(txs);
+    });
+    const unsubRef = subscribeToUserReferrals(currentUser.uid, (refs) => {
+      setReferrals(refs);
+    });
+    return () => {
+      unsubTx();
+      unsubRef();
+    };
+  }, [currentUser]);
+
+  // Server-Authoritative Mining Handlers
+  const handleStartMiningSession = async () => {
+    if (!currentUser) {
+      setIsAuthOpen(true);
+      return;
+    }
+    try {
+      const rate = baseRate + boostRate;
+      const res = await startMiningSession(currentUser.uid, rate);
+      setIsMining(true);
+      addAuditLog(
+        "HALVING_EMISSION",
+        "info",
+        `Initiated 24h sovereign mining cycle for node #${currentUser.uid.slice(0, 6)}.`
+      );
+      setNotifications((prev) => [
+        {
+          id: `notif-${Date.now()}`,
+          title: "Mining Cycle Activated",
+          message: `24-hour server-authoritative session initiated at ${rate.toFixed(2)} MSDQ/h.`,
+          type: "mining",
+          timestamp: "Just now",
+          read: false,
+        },
+        ...prev,
+      ]);
+    } catch (err: any) {
+      alert(err.message || "Failed to start mining session.");
+    }
+  };
+
+  const handleClaimMiningReward = async () => {
+    if (!currentUser) {
+      setIsAuthOpen(true);
+      return;
+    }
+    try {
+      const res = await claimMiningSessionReward(currentUser.uid);
+      setProtocolBalance(res.newBalance);
+      setIsMining(false);
+      setSessionMined(0);
+      addAuditLog(
+        "HALVING_EMISSION",
+        "success",
+        `Claimed +${res.earned.toFixed(4)} MSDQ consensus mining reward.`
+      );
+      setNotifications((prev) => [
+        {
+          id: `notif-${Date.now()}`,
+          title: "Mining Reward Settled",
+          message: `Successfully minted +${res.earned.toFixed(4)} MSDQ into your verified ledger balance.`,
+          type: "mining",
+          timestamp: "Just now",
+          read: false,
+        },
+        ...prev,
+      ]);
+    } catch (err: any) {
+      alert(err.message || "Could not claim mining reward.");
+    }
+  };
 
   // Actions
   const handleToggleMining = () => {
-    setIsMining(!isMining);
-    addAuditLog(
-      "SECURITY_ENCLAVE",
-      "info",
-      `Miner node #MSDQ-8842 transitioned state to ${!isMining ? "ENGAGED" : "PAUSED"}.`
-    );
+    if (!currentUser) {
+      setIsAuthOpen(true);
+      return;
+    }
+    if (!isMining) {
+      handleStartMiningSession();
+    }
   };
 
   const handleClaimMining = () => {
-    if (sessionMined <= 0) return;
-    const claimed = sessionMined;
-    setSessionMined(0);
-
-    const newTx: Transaction = {
-      id: `tx-${Date.now()}`,
-      type: "mining",
-      amount: claimed,
-      usdValue: claimed * 0.5,
-      timestamp: "Just now",
-      status: "confirmed",
-      txHash: `0x${Math.random().toString(16).slice(2, 8)}...${Math.random().toString(16).slice(2, 5)}`,
-      note: "Enclave Mining Yield Claim",
-    };
-    setTransactions((prev) => [newTx, ...prev]);
-    addAuditLog(
-      "HALVING_EMISSION",
-      "success",
-      `Disbursed +${claimed.toFixed(2)} MSDQ Proof-of-Work emission to node vault.`
-    );
+    handleClaimMiningReward();
   };
 
   const handleSendTransaction = async (
@@ -591,7 +663,7 @@ export default function App() {
         currentScreen={currentScreen}
         onNavigate={(screen) => {
           if (screen === "admin") {
-            setIsAdminOpen(true);
+            setCurrentScreen("admin");
           } else {
             setCurrentScreen(screen);
           }
@@ -599,6 +671,7 @@ export default function App() {
         unclaimedRewardsCount={unclaimedRewardsCount}
         unreadNotifCount={unreadNotifCount}
         isMining={isMining}
+        isAdmin={isAdmin}
       />
 
       {/* Top Application Bar */}
@@ -606,7 +679,7 @@ export default function App() {
         currentScreen={currentScreen}
         onNavigate={(screen) => {
           if (screen === "admin") {
-            setIsAdminOpen(true);
+            setCurrentScreen("admin");
           } else {
             setCurrentScreen(screen);
           }
@@ -617,19 +690,56 @@ export default function App() {
         unreadNotifications={unreadNotifCount}
         onOpenNotifications={() => setCurrentScreen("notifications")}
         onOpenAi={() => setIsAiOpen(true)}
-        isAdminOpen={isAdminOpen}
-        onToggleAdmin={() => setIsAdminOpen(!isAdminOpen)}
+        isAdminOpen={currentScreen === "admin"}
+        onToggleAdmin={() => {
+          setCurrentScreen(currentScreen === "admin" ? "dash" : "admin");
+        }}
         onOpenAuth={() => setIsAuthOpen(true)}
         onOpenKyc={() => setIsKycOpen(true)}
+        isAdmin={isAdmin}
         userAuth={{
-          isLoggedIn: !!currentUser || true,
-          email: currentUser?.email || "miner.8842@msdq.network",
+          isLoggedIn: !!currentUser,
+          email: currentUser?.email || "Guest Miner",
           kycStatus: kycStatus === "NOT_SUBMITTED" ? "NONE" : (kycStatus as any),
         }}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-2 sm:px-4">
+        {currentScreen === "admin" && (
+          <AdminGatewayScreen
+            currentUser={currentUser}
+            userProfile={userProfile}
+            onAdminAuthSuccess={(user, profile) => {
+              setCurrentUser(user);
+              setUserProfile(profile);
+            }}
+            onReturnToDashboard={() => setCurrentScreen("dash")}
+            auditLogs={auditLogs}
+            enclaveUsers={enclaveUsers}
+            onAddAuditLog={(log) => setAuditLogs((prev) => [log, ...prev])}
+            onUpdateUserStatus={handleUpdateUserStatus}
+            onAdjustUserBalance={handleAdjustUserBalance}
+            baseMiningRate={baseRate}
+            onUpdateBaseMiningRate={(rate) => setBaseRate(rate)}
+            transactions={transactions}
+            onUpdateAuditLogStatus={handleUpdateAuditLogStatus}
+            conversionRate={conversionRate}
+            onUpdateConversionRate={(rate) => setConversionRate(rate)}
+            msdqToPtsRate={msdqToPtsRate}
+            onUpdateMsdqToPtsRate={(rate) => setMsdqToPtsRate(rate)}
+            kycApplications={kycApplications}
+            onReviewKyc={handleReviewKyc}
+            announcements={announcements}
+            onAddAnnouncement={handleAddAnnouncement}
+            onToggleAnnouncement={handleToggleAnnouncement}
+            onSendNotification={handleSendNotification}
+            gameConfigs={gameConfigs}
+            onToggleGame={handleToggleGame}
+            onUpdateGameLimits={handleUpdateGameLimits}
+          />
+        )}
+
         {(currentScreen === "dash" || currentScreen === "home") && (
           <DashboardScreen
             protocolBalance={protocolBalance}
@@ -670,6 +780,9 @@ export default function App() {
             onNavigate={(screen) => setCurrentScreen(screen)}
             halvingMilestones={halvingMilestones}
             transactions={transactions}
+            userProfile={userProfile}
+            onStartMiningSession={handleStartMiningSession}
+            onClaimMiningReward={handleClaimMiningReward}
           />
         )}
 
@@ -731,6 +844,7 @@ export default function App() {
             referrals={referrals}
             onPingNode={handlePingNode}
             onOpenInviteModal={() => setIsReceiveOpen(true)}
+            userProfile={userProfile}
           />
         )}
 
@@ -766,7 +880,7 @@ export default function App() {
         currentScreen={currentScreen}
         onNavigate={(screen) => {
           if (screen === "admin") {
-            setIsAdminOpen(true);
+            setCurrentScreen("admin");
           } else {
             setCurrentScreen(screen);
           }
@@ -774,6 +888,7 @@ export default function App() {
         unclaimedRewardsCount={unclaimedRewardsCount}
         unreadNotifCount={unreadNotifCount}
         onOpenBoost={() => setIsBoostOpen(true)}
+        isAdmin={isAdmin}
       />
 
       {/* OVERLAYS & MODALS */}
@@ -811,7 +926,6 @@ export default function App() {
         userProfile={userProfile}
         onAuthSuccess={handleAuthSuccess}
         onSignOut={handleSignOut}
-        joiningBonus={10.0}
       />
 
       {/* KYC Identity Verification Modal */}
@@ -863,34 +977,6 @@ export default function App() {
       <AiAssistantModal
         isOpen={isAiOpen}
         onClose={() => setIsAiOpen(false)}
-      />
-
-      {/* Admin Console Modal with Expanded Tabs */}
-      <AdminConsoleModal
-        isOpen={isAdminOpen}
-        onClose={() => setIsAdminOpen(false)}
-        auditLogs={auditLogs}
-        enclaveUsers={enclaveUsers}
-        onAddAuditLog={(log) => setAuditLogs((prev) => [log, ...prev])}
-        onUpdateUserStatus={handleUpdateUserStatus}
-        onAdjustUserBalance={handleAdjustUserBalance}
-        baseMiningRate={baseRate}
-        onUpdateBaseMiningRate={(rate) => setBaseRate(rate)}
-        transactions={transactions}
-        onUpdateAuditLogStatus={handleUpdateAuditLogStatus}
-        conversionRate={conversionRate}
-        onUpdateConversionRate={(rate) => setConversionRate(rate)}
-        msdqToPtsRate={msdqToPtsRate}
-        onUpdateMsdqToPtsRate={(rate) => setMsdqToPtsRate(rate)}
-        kycApplications={kycApplications}
-        onReviewKyc={handleReviewKyc}
-        announcements={announcements}
-        onAddAnnouncement={handleAddAnnouncement}
-        onToggleAnnouncement={handleToggleAnnouncement}
-        onSendNotification={handleSendNotification}
-        gameConfigs={gameConfigs}
-        onToggleGame={handleToggleGame}
-        onUpdateGameLimits={handleUpdateGameLimits}
       />
 
       {/* Notification Drawer */}

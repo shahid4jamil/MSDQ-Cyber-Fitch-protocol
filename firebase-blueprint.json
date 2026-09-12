@@ -83,12 +83,31 @@
         "reconnectToken": { "type": "string", "description": "Token for state resumption" }
       },
       "required": ["id", "userId", "userName", "gameType", "status", "lastActiveAt"]
+    },
+    "NodeReferral": {
+      "title": "NodeReferral",
+      "description": "Referral relationship recorded under a referrer subcollection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Referred user UID" },
+        "name": { "type": "string", "description": "Referred user display name or callsign" },
+        "email": { "type": "string", "description": "Referred user email address" },
+        "nodeCode": { "type": "string", "description": "Referred user public node identifier" },
+        "status": { "type": "string", "enum": ["Active", "Inactive", "Pending"], "description": "Referral activity status" },
+        "rewardMSDQ": { "type": "number", "description": "Commission or reward bonus credited to referrer" },
+        "joinedAt": { "type": "number", "description": "Timestamp when referral was registered" }
+      },
+      "required": ["id", "name", "email", "nodeCode", "status", "joinedAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserProfile" },
       "description": "User sovereign account documents"
+    },
+    "/users/{userId}/referrals/{refId}": {
+      "schema": { "$ref": "#/entities/NodeReferral" },
+      "description": "Referral network members registered under a specific referrer node"
     },
     "/transactions/{txId}": {
       "schema": { "$ref": "#/entities/WalletTransaction" },

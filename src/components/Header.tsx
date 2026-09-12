@@ -10,6 +10,7 @@ interface HeaderProps {
   unreadNotifications: number;
   onOpenNotifications: () => void;
   onOpenAi: () => void;
+  isAdmin?: boolean;
   isAdminOpen: boolean;
   onToggleAdmin: () => void;
   onOpenAuth?: () => void;
@@ -18,6 +19,7 @@ interface HeaderProps {
     email?: string | null;
     isLoggedIn?: boolean;
     kycStatus?: "NONE" | "PENDING" | "VERIFIED" | "REJECTED" | "NOT_SUBMITTED" | "NEEDS_RESUBMISSION";
+    userId?: string;
   };
 }
 
@@ -26,15 +28,16 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigate,
   protocolBalance,
   usdBalance,
-  ptsBalance = 840,
+  ptsBalance = 0,
   unreadNotifications,
   onOpenNotifications,
   onOpenAi,
+  isAdmin = false,
   isAdminOpen,
   onToggleAdmin,
   onOpenAuth,
   onOpenKyc,
-  userAuth = { isLoggedIn: true, kycStatus: "VERIFIED", email: "miner.8842@msdq.network" },
+  userAuth = { isLoggedIn: false, kycStatus: "NOT_SUBMITTED", email: null, userId: "" },
 }) => {
   return (
     <header className="sticky top-0 z-30 w-full bg-[#0f131c]/95 backdrop-blur-md border-b border-[#2a3447] px-3.5 py-2.5 flex items-center justify-between transition-all shadow-md">
@@ -46,7 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
           title="Open Profile & KYC Settings"
         >
           <div className="w-full h-full rounded-[10px] bg-[#0f131c] flex items-center justify-center font-mono text-xs font-bold text-[#10b981]">
-            #8842
+            {userAuth.userId ? `#${userAuth.userId.replace("MSDQ-", "").slice(0, 4)}` : userAuth.isLoggedIn ? "#NODE" : "NODE"}
           </div>
           <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[#10b981] border-2 border-[#0f131c] rounded-full animate-pulse" />
         </button>
@@ -149,19 +152,21 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </button>
 
-        {/* Admin Console Button */}
-        <button
-          onClick={onToggleAdmin}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border font-mono text-xs font-bold transition-all cursor-pointer ${
-            isAdminOpen || currentScreen === "admin"
-              ? "bg-[#ef4444]/20 border-[#ef4444] text-[#ef4444] shadow-[0_0_12px_rgba(239,68,68,0.3)]"
-              : "bg-[#131823] border-[#2a3447] text-[#94a3b8] hover:text-white hover:border-[#ef4444]/50"
-          }`}
-          title="Super-Admin Console"
-        >
-          <span className="material-symbols-outlined text-[18px]">admin_panel_settings</span>
-          <span className="hidden lg:inline">ADMIN</span>
-        </button>
+        {/* Admin Console Button - STRICTLY restricted to authorized administrators */}
+        {isAdmin && (
+          <button
+            onClick={onToggleAdmin}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border font-mono text-xs font-bold transition-all cursor-pointer ${
+              isAdminOpen || currentScreen === "admin"
+                ? "bg-[#ef4444]/20 border-[#ef4444] text-[#ef4444] shadow-[0_0_12px_rgba(239,68,68,0.3)]"
+                : "bg-[#131823] border-[#2a3447] text-[#94a3b8] hover:text-white hover:border-[#ef4444]/50"
+            }`}
+            title="Super-Admin Console"
+          >
+            <span className="material-symbols-outlined text-[18px] text-[#ef4444]">admin_panel_settings</span>
+            <span className="hidden lg:inline text-[#ef4444]">ADMIN</span>
+          </button>
+        )}
       </div>
     </header>
   );

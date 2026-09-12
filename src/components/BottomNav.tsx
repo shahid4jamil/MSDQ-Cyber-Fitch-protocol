@@ -7,6 +7,7 @@ interface BottomNavProps {
   unclaimedRewardsCount: number;
   unreadNotifCount?: number;
   onOpenBoost?: () => void;
+  isAdmin?: boolean;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
@@ -15,6 +16,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   unclaimedRewardsCount,
   unreadNotifCount = 0,
   onOpenBoost,
+  isAdmin = false,
 }) => {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
 
@@ -83,7 +85,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     { id: "referrals", label: "Syndicate / Referrals", icon: "groups" },
     { id: "notifications", label: "Alerts & Telemetry", icon: "notifications", badge: unreadNotifCount },
     { id: "halving", label: "Halving Protocol", icon: "hourglass_bottom" },
-    { id: "admin", label: "Super Admin Console", icon: "admin_panel_settings" },
+    ...(isAdmin ? [{ id: "admin" as ScreenType, label: "Super Admin Console", icon: "admin_panel_settings" }] : []),
   ];
 
   return (

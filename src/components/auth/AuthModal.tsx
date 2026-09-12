@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   signInWithGoogle,
   loginWithEmail,
   registerWithEmail,
   sendPasswordReset,
   signOutUser,
+  validateReferralCodeServer,
   UserProfile,
 } from "../../lib/firebase";
 import { User } from "firebase/auth";
@@ -16,7 +17,6 @@ interface AuthModalProps {
   userProfile: UserProfile | null;
   onAuthSuccess: (user: User, profile: UserProfile) => void;
   onSignOut: () => void;
-  joiningBonus?: number;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -26,7 +26,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   userProfile,
   onAuthSuccess,
   onSignOut,
-  joiningBonus = 10.0,
 }) => {
   const [tab, setTab] = useState<"signin" | "signup" | "forgot">("signin");
   const [email, setEmail] = useState("");
@@ -34,11 +33,65 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [referralCode, setReferralCode] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [copiedAddress, setCopiedAddress] = useState(false);
+
+  // Real-time server referral validation state
+  const [refChecking, setRefChecking] = useState(false);
+  const [refStatus, setRefStatus] = useState<{
+    checked: boolean;
+    valid: boolean;
+    error?: string;
+    referrer?: { id: string; displayName: string; userId: string };
+  } | null>(null);
+
+  // Auto-detect referral code from URL query parameter ?ref=CODE
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const refParam = params.get("ref");
+      if (refParam) {
+        setReferralCode(refParam.trim().toUpperCase());
+      }
+    } catch {}
+  }, []);
+
+  // Real-time server-side debounce validation of referral code
+  useEffect(() => {
+    const cleanRef = referralCode.trim().toUpperCase();
+    if (!cleanRef) {
+      setRefStatus(null);
+      setRefChecking(false);
+      return;
+    }
+
+    setRefChecking(true);
+    const timer = setTimeout(async () => {
+      try {
+        const result = await validateReferralCodeServer(cleanRef, email.trim());
+        setRefStatus({
+          checked: true,
+          valid: result.valid,
+          error: result.error,
+          referrer: result.referrer,
+        });
+      } catch (err: any) {
+        setRefStatus({
+          checked: true,
+          valid: false,
+          error: err.message || "Failed to validate code.",
+        });
+      } finally {
+        setRefChecking(false);
+      }
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [referralCode, email]);
 
   if (!isOpen) return null;
 
@@ -71,8 +124,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error("Email login error:", err);
-      if (err.code === "auth/invalid-credential" || err.code === "auth/user-not-found" || err.code === "auth/wrong-password") {
-        setErrorMessage("Invalid email or password. Please verify your credentials.");
+      if (
+        err.code === "auth/invalid-credential" ||
+        err.code === "auth/user-not-found" ||
+        err.code === "auth/wrong-password"
+      ) {
+        setErrorMessage("Invalid email or master password. Please verify your credentials.");
       } else if (err.code === "auth/too-many-requests") {
         setErrorMessage("Too many failed attempts. Please reset your password or try again later.");
       } else {
@@ -86,7 +143,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim()) {
-      setErrorMessage("Please provide your full callsign / legal name.");
+      setErrorMessage("Please provide your full legal name or callsign.");
       return;
     }
     if (!email.trim() || !password) {
@@ -98,7 +155,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
     if (password !== confirmPassword) {
-      setErrorMessage("Passwords do not match.");
+      setErrorMessage("Passwords do not match. Please re-enter.");
       return;
     }
     if (!termsAccepted) {
@@ -114,16 +171,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         email,
         password,
         phone.trim() || undefined,
-        joiningBonus
+        referralCode.trim() || undefined
       );
       onAuthSuccess(user, profile);
       onClose();
     } catch (err: any) {
       console.error("Registration error:", err);
       if (err.code === "auth/email-already-in-use" || err.message?.includes("already exists")) {
-        setErrorMessage("An account already exists for this user. One User = One Account policy strictly enforced.");
+        setErrorMessage("An account already exists with this email address.");
       } else {
-        setErrorMessage(err.message || "Registration failed.");
+        setErrorMessage(err.message || "Registration failed. Please try again.");
       }
     } finally {
       setLoading(false);
@@ -158,87 +215,87 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   return (
     <div
       id="msdq-auth-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn"
     >
-      <div className="relative w-full max-w-md bg-[#0f141f] border border-[#2a3447] rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 my-8 max-h-[90vh] overflow-y-auto">
-        {/* Header Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-xl bg-[#1e2738] hover:bg-[#2a374f] text-[#94a3b8] hover:text-white transition-colors"
-          title="Close"
-        >
-          <span className="material-symbols-outlined text-[18px]">close</span>
-        </button>
+      <div className="relative w-full max-w-md bg-[#0f141f] border border-[#2a3447] rounded-3xl p-6 md:p-8 shadow-2xl space-y-6 overflow-hidden max-h-[92vh] overflow-y-auto">
+        {/* Glow Header */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#10b981] via-[#06b6d4] to-[#3b82f6]" />
 
-        {/* Brand & Security Header */}
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-[#10b981] via-[#059669] to-[#38bdf8] flex items-center justify-center shadow-lg shadow-[#10b981]/20">
-            <span className="material-symbols-outlined text-white text-[22px]">shield_person</span>
+        {/* Modal Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-[#10b981]/15 border border-[#10b981]/30 flex items-center justify-center shadow-inner">
+              <span className="material-symbols-outlined text-[#10b981] text-[22px]">
+                lock
+              </span>
+            </div>
+            <div>
+              <h2 className="text-lg font-mono font-black text-white tracking-wide">
+                {currentUser ? "Node Identity" : "MSDQ Network"}
+              </h2>
+              <p className="text-xs text-[#94a3b8] font-mono">
+                {currentUser ? "Sovereign Account" : "Decentralized Mining Protocol"}
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-lg font-mono font-black text-white tracking-tight">
-              MSDQ Sovereign ID Enclave
-            </h2>
-            <p className="text-xs font-mono text-[#94a3b8]">
-              One User = One Account Consensus Security
-            </p>
-          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-xl bg-[#1e2738] hover:bg-[#28354c] border border-[#2a3447] text-[#94a3b8] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[18px]">close</span>
+          </button>
         </div>
 
-        {/* ALREADY LOGGED IN VIEW */}
-        {currentUser && userProfile ? (
-          <div className="space-y-4 pt-2">
-            <div className="p-4 rounded-2xl bg-[#0a0e17] border border-[#10b981]/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono text-[#94a3b8]">Verified Account</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/40 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-pulse"></span>
-                  AUTHENTICATED
+        {currentUser ? (
+          /* Profile Details (Logged In) */
+          <div className="space-y-4 font-mono text-xs">
+            <div className="p-4 rounded-2xl bg-[#0a0e17] border border-[#2a3447] space-y-3">
+              <div className="flex items-center justify-between pb-3 border-b border-[#1e2738]">
+                <span className="text-[#94a3b8]">Callsign:</span>
+                <span className="font-bold text-white">
+                  {userProfile?.displayName || currentUser.displayName || "Miner"}
                 </span>
               </div>
-
-              <div className="space-y-1">
-                <div className="text-sm font-bold text-white font-mono">
-                  {userProfile.displayName || currentUser.displayName || "Sovereign Miner"}
-                </div>
-                <div className="text-xs text-[#94a3b8] font-mono">{currentUser.email}</div>
+              <div className="flex items-center justify-between pb-3 border-b border-[#1e2738]">
+                <span className="text-[#94a3b8]">User ID:</span>
+                <span className="font-bold text-[#10b981]">
+                  {userProfile?.userId || "MSDQ-NODE"}
+                </span>
               </div>
-
-              {/* Permanent Unique Wallet Address */}
-              <div className="p-3 rounded-xl bg-[#131823] border border-[#2a3447] space-y-1">
-                <div className="text-[10px] uppercase font-mono tracking-wider text-[#64748b]">
-                  Permanent Sovereign Address
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xs font-bold text-[#38bdf8] truncate">
-                    {userProfile.walletAddress}
-                  </span>
+              <div className="flex items-center justify-between pb-3 border-b border-[#1e2738]">
+                <span className="text-[#94a3b8]">Email:</span>
+                <span className="text-white truncate max-w-[200px]">
+                  {currentUser.email}
+                </span>
+              </div>
+              <div className="flex items-center justify-between pb-3 border-b border-[#1e2738]">
+                <span className="text-[#94a3b8]">Referral Code:</span>
+                <span className="font-bold text-[#38bdf8]">
+                  {userProfile?.referralCode || "N/A"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between pb-3 border-b border-[#1e2738]">
+                <span className="text-[#94a3b8]">Account Status:</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-[#10b981]/20 text-[#10b981] font-bold border border-[#10b981]/30">
+                  {userProfile?.status || "Active"}
+                </span>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[#94a3b8]">
+                  <span>Sovereign Address:</span>
                   <button
                     onClick={handleCopyWalletAddress}
-                    className="p-1.5 rounded-lg bg-[#1e2738] hover:bg-[#2a374f] text-[#94a3b8] hover:text-white transition-colors shrink-0"
-                    title="Copy Address"
+                    className="text-[#10b981] hover:underline flex items-center gap-1"
                   >
-                    <span className="material-symbols-outlined text-[16px]">
+                    <span className="material-symbols-outlined text-[14px]">
                       {copiedAddress ? "check" : "content_copy"}
                     </span>
+                    <span>{copiedAddress ? "Copied" : "Copy"}</span>
                   </button>
                 </div>
-              </div>
-
-              {/* KYC Status Badge */}
-              <div className="flex items-center justify-between text-xs font-mono pt-1">
-                <span className="text-[#94a3b8]">KYC Level:</span>
-                <span
-                  className={`px-2 py-0.5 rounded font-bold ${
-                    userProfile.kycStatus === "VERIFIED"
-                      ? "bg-[#10b981]/20 text-[#10b981]"
-                      : userProfile.kycStatus === "PENDING"
-                      ? "bg-[#f59e0b]/20 text-[#f59e0b]"
-                      : "bg-[#64748b]/20 text-[#94a3b8]"
-                  }`}
-                >
-                  {userProfile.kycStatus.replace("_", " ")}
-                </span>
+                <div className="p-2 rounded-xl bg-[#1e2738] text-[11px] text-white font-mono break-all select-all border border-[#2a3447]">
+                  {userProfile?.walletAddress || "Generating..."}
+                </div>
               </div>
             </div>
 
@@ -286,19 +343,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     : "text-[#94a3b8] hover:text-white"
                 }`}
               >
-                Register
+                Create Account
               </button>
             </div>
 
             {/* Notification messages */}
             {errorMessage && (
-              <div className="p-3 rounded-xl bg-[#ef4444]/15 border border-[#ef4444]/30 text-[#ef4444] text-xs font-mono flex items-center gap-2 animate-fadeIn">
+              <div className="p-3 rounded-xl bg-[#ef4444]/15 border border-[#ef4444]/30 text-[#ef4444] text-xs font-mono flex items-center gap-2">
                 <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
                 <span>{errorMessage}</span>
               </div>
             )}
             {successMessage && (
-              <div className="p-3 rounded-xl bg-[#10b981]/15 border border-[#10b981]/30 text-[#10b981] text-xs font-mono flex items-center gap-2 animate-fadeIn">
+              <div className="p-3 rounded-xl bg-[#10b981]/15 border border-[#10b981]/30 text-[#10b981] text-xs font-mono flex items-center gap-2">
                 <span className="material-symbols-outlined text-[18px] shrink-0">check_circle</span>
                 <span>{successMessage}</span>
               </div>
@@ -333,7 +390,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div className="flex items-center gap-3 text-[#64748b] text-xs font-mono">
               <div className="h-[1px] flex-1 bg-[#2a3447]"></div>
-              <span>OR EMAIL SECURE LOGIN</span>
+              <span>OR EMAIL ACCOUNT</span>
               <div className="h-[1px] flex-1 bg-[#2a3447]"></div>
             </div>
 
@@ -382,7 +439,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   disabled={loading}
                   className="w-full py-3 rounded-2xl bg-gradient-to-r from-[#10b981] to-[#059669] text-[#0f141f] font-mono font-black text-xs transition-all shadow-lg shadow-[#10b981]/20 hover:brightness-110 cursor-pointer disabled:opacity-50 mt-2"
                 >
-                  {loading ? "Authenticating Enclave..." : "Sign In to MSDQ Node"}
+                  {loading ? "Authenticating Node..." : "Sign In to MSDQ Node"}
                 </button>
               </form>
             )}
@@ -392,7 +449,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <form onSubmit={handleEmailSignUp} className="space-y-3 font-mono">
                 <div>
                   <label className="text-[10px] text-[#94a3b8] uppercase tracking-wider block mb-1">
-                    Full Callsign / Legal Name
+                    Full Name / Callsign
                   </label>
                   <input
                     type="text"
@@ -449,7 +506,64 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                 <div>
                   <label className="text-[10px] text-[#94a3b8] uppercase tracking-wider block mb-1">
-                    Phone (Optional Verification)
+                    Referral Code (Optional)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={referralCode}
+                      onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. MSDQ7K4P92"
+                      className={`w-full px-3.5 py-2 rounded-xl bg-[#0a0e17] border text-white text-xs placeholder-[#475569] focus:outline-none uppercase ${
+                        refStatus?.checked
+                          ? refStatus.valid
+                            ? "border-[#10b981] text-[#10b981]"
+                            : "border-[#ef4444] text-[#ef4444]"
+                          : "border-[#2a3447] focus:border-[#10b981]"
+                      }`}
+                    />
+                    {refChecking && (
+                      <div className="absolute right-3 top-2.5 flex items-center gap-1.5 text-[10px] text-[#38bdf8]">
+                        <span className="w-2 h-2 rounded-full bg-[#38bdf8] animate-ping"></span>
+                        <span className="font-mono text-[9px]">Verifying...</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Server-Side Validation Feedback */}
+                  {refStatus?.checked && (
+                    <div
+                      className={`mt-1.5 p-2 rounded-lg text-[10px] font-mono flex items-start gap-1.5 ${
+                        refStatus.valid
+                          ? "bg-[#10b981]/10 border border-[#10b981]/30 text-[#10b981]"
+                          : "bg-[#ef4444]/10 border border-[#ef4444]/30 text-[#ef4444]"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[14px] shrink-0 mt-0.5">
+                        {refStatus.valid ? "verified" : "cancel"}
+                      </span>
+                      <div>
+                        {refStatus.valid ? (
+                          <>
+                            <div className="font-bold">
+                              Referrer Verified: {refStatus.referrer?.displayName} (
+                              {refStatus.referrer?.userId})
+                            </div>
+                            <div className="text-[9px] text-[#10b981]/80">
+                              +100.00 MSDQ reward atomically credited to referrer in Firestore transaction
+                            </div>
+                          </>
+                        ) : (
+                          <div>{refStatus.error || "Referral code invalid or self-referral detected."}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-[#94a3b8] uppercase tracking-wider block mb-1">
+                    Phone Number (Optional)
                   </label>
                   <input
                     type="tel"
@@ -469,18 +583,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     className="mt-0.5 rounded border-[#2a3447] bg-[#0a0e17] text-[#10b981] focus:ring-0 cursor-pointer"
                   />
                   <span className="text-[10px] text-[#94a3b8] leading-tight">
-                    I agree to the MSDQ Network Consensus Protocol Terms. I understand that multi-accounting or fraudulent claims are forbidden.
+                    I agree to the MSDQ Network Protocol Terms. I understand multi-accounting is strictly prohibited.
                   </span>
                 </label>
 
-                {/* Account Genesis Balance Guarantee Note */}
-                <div className="p-2.5 rounded-xl bg-[#10b981]/10 border border-[#10b981]/25 text-[10px] text-[#10b981] space-y-0.5">
-                  <div className="font-bold flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[14px]">verified</span>
-                    <span>Genesis Balance Guarantee</span>
+                {/* Account Zero Starting Balance Guarantee */}
+                <div className="p-2.5 rounded-xl bg-[#1e2738] border border-[#2a3447] text-[10px] text-[#94a3b8] space-y-0.5">
+                  <div className="font-bold text-white flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px] text-[#10b981]">verified</span>
+                    <span>Zero-Balance Standard</span>
                   </div>
-                  <p className="text-[#a7f3d0]">
-                    New accounts begin from zero with un-mined reserves, receiving {joiningBonus.toFixed(2)} MSDQ initial genesis joining grant.
+                  <p>
+                    All new accounts start with exactly 0.00 MSDQ. Earn rewards through server-validated daily mining, tasks, and referrals.
                   </p>
                 </div>
 
@@ -489,7 +603,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   disabled={loading}
                   className="w-full py-3 rounded-2xl bg-gradient-to-r from-[#10b981] via-[#059669] to-[#047857] text-white font-mono font-black text-xs transition-all shadow-lg shadow-[#10b981]/20 hover:brightness-110 cursor-pointer disabled:opacity-50"
                 >
-                  {loading ? "Creating Node Enclave..." : "Create Sovereign Account"}
+                  {loading ? "Creating Node Account..." : "Create Free Account"}
                 </button>
               </form>
             )}
@@ -498,7 +612,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {tab === "forgot" && (
               <form onSubmit={handleForgotPassword} className="space-y-3 font-mono">
                 <p className="text-xs text-[#94a3b8]">
-                  Enter the email address registered with your MSDQ Network enclave to receive recovery instructions.
+                  Enter the email address registered with your MSDQ Network account to receive a secure password reset link.
                 </p>
                 <div>
                   <label className="text-[10px] text-[#94a3b8] uppercase tracking-wider block mb-1">
@@ -518,29 +632,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setTab("signin")}
-                    className="w-1/3 py-2.5 rounded-xl bg-[#1e2738] text-[#94a3b8] hover:text-white text-xs font-bold"
+                    className="flex-1 py-2.5 rounded-xl bg-[#1e2738] hover:bg-[#28354c] border border-[#2a3447] text-white text-xs font-mono font-bold transition-all"
                   >
-                    Back
+                    Back to Sign In
                   </button>
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-2/3 py-2.5 rounded-xl bg-[#10b981] text-[#0f141f] text-xs font-black hover:brightness-110 disabled:opacity-50"
+                    className="flex-1 py-2.5 rounded-xl bg-[#10b981] hover:bg-[#059669] text-[#0f141f] text-xs font-mono font-bold transition-all shadow-md shadow-[#10b981]/20"
                   >
-                    {loading ? "Sending..." : "Send Reset Email"}
+                    {loading ? "Sending..." : "Send Reset Link"}
                   </button>
                 </div>
               </form>
             )}
           </>
         )}
-
-        {/* Footer Policy Badge */}
-        <div className="pt-2 text-center border-t border-[#2a3447]/60">
-          <span className="text-[10px] font-mono text-[#64748b]">
-            Secured by Firebase Auth • One-Account Byzantine Fault Proof
-          </span>
-        </div>
       </div>
     </div>
   );

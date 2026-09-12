@@ -1,25 +1,65 @@
 import React, { useState } from "react";
 import { NodeReferral } from "../types";
+import { UserProfile } from "../lib/firebase";
 
 interface ReferralsScreenProps {
   referrals: NodeReferral[];
   onPingNode: (nodeId: string) => void;
-  onOpenInviteModal: () => void;
+  onOpenInviteModal?: () => void;
+  userProfile?: UserProfile | null;
 }
 
 export const ReferralsScreen: React.FC<ReferralsScreenProps> = ({
   referrals,
   onPingNode,
   onOpenInviteModal,
+  userProfile,
 }) => {
   const [copiedCode, setCopiedCode] = useState(false);
-  const referralCode = "MSDQ-CYBER-8842";
+  const [copiedLink, setCopiedLink] = useState(false);
 
-  const handleCopy = () => {
+  const referralCode = userProfile?.referralCode || "MSDQ-CYBER";
+  const referralLink = typeof window !== "undefined"
+    ? `${window.location.origin}/?ref=${referralCode}`
+    : `https://msdq.network/?ref=${referralCode}`;
+
+  const handleCopyCode = () => {
     navigator.clipboard?.writeText(referralCode);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
   };
+
+  const handleCopyLink = () => {
+    navigator.clipboard?.writeText(referralLink);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const handleWhatsAppShare = () => {
+    const text = `Join MSDQ Network using my referral link:\n${referralLink}`;
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleNativeShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: "MSDQ Network Sovereign Mining",
+          text: `Join MSDQ Network using my referral link:\n${referralLink}`,
+          url: referralLink,
+        });
+      } catch (e) {
+        handleCopyLink();
+      }
+    } else {
+      handleCopyLink();
+    }
+  };
+
+  const totalReferrals = userProfile?.totalReferrals ?? referrals.length;
+  const activeReferrals = userProfile?.activeReferrals ?? referrals.filter((r) => r.status === "Active").length;
+  const referralRewards = userProfile?.referralCommissionEarned ?? userProfile?.referralRewards ?? 0.0;
 
   return (
     <div className="flex flex-col gap-4 pb-24 max-w-xl mx-auto px-3.5 pt-3">
@@ -28,10 +68,10 @@ export const ReferralsScreen: React.FC<ReferralsScreenProps> = ({
         <div className="flex items-center justify-between text-xs font-mono">
           <span className="text-[#4edea3] font-bold flex items-center gap-1.5">
             <span className="material-symbols-outlined text-[16px]">verified</span>
-            AMBASSADOR TIER 2
+            AMBASSADOR SYNDICATE
           </span>
           <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-[#4edea3]/10 text-[#4edea3] border border-[#4edea3]/30">
-            64 / 100 NODES
+            {totalReferrals} NODES LINKED
           </span>
         </div>
 
@@ -46,65 +86,133 @@ export const ReferralsScreen: React.FC<ReferralsScreenProps> = ({
         <div className="w-full h-2 rounded-full bg-[#0a0e16] mt-4 overflow-hidden">
           <div
             className="h-full rounded-full bg-gradient-to-r from-[#4edea3] to-[#4cd7f6]"
-            style={{ width: "64%" }}
-          ></div>
+            style={{ width: `${Math.min(100, Math.max(10, (totalReferrals / 25) * 100))}%` }}
+          />
         </div>
 
         <div className="flex items-center justify-between text-[11px] font-mono text-[#bbcabf] mt-1.5">
-          <span>Tier 2 (64 Nodes)</span>
-          <span>Next: Master Ambassador (100 Nodes)</span>
+          <span>{totalReferrals} Invited</span>
+          <span>Next Rank: Master Ambassador (25 Nodes)</span>
         </div>
+      </div>
+
+      {/* Authoritative Referral Bounty Banner */}
+      <div className="rounded-2xl bg-gradient-to-r from-[#1b2a24] to-[#15232d] border border-[#4edea3]/40 p-3.5 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-[#4edea3]/10 border border-[#4edea3]/30 flex items-center justify-center text-[#4edea3]">
+            <span className="material-symbols-outlined text-[24px]">card_giftcard</span>
+          </div>
+          <div>
+            <div className="text-xs font-mono font-bold text-[#dfe2ee]">
+              Referral Reward: <span className="text-[#4edea3]">100.00 MSDQ</span>
+            </div>
+            <div className="text-[11px] text-[#bbcabf]">
+              Credited automatically to your balance per qualified verified referral
+            </div>
+          </div>
+        </div>
+        <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-[#4edea3]/10 text-[#4edea3] border border-[#4edea3]/30 uppercase font-bold">
+          100 MSDQ
+        </span>
       </div>
 
       {/* Referral Yield Metrics Row */}
       <div className="grid grid-cols-3 gap-2.5">
         <div className="p-3 rounded-2xl bg-[#1c2028] border border-[#3c4a42]/50 flex flex-col">
           <span className="text-[10px] font-mono text-[#bbcabf] uppercase">Total Yield</span>
-          <span className="text-sm font-mono font-bold text-[#4edea3] mt-1">3,420.60</span>
+          <span className="text-sm font-mono font-bold text-[#4edea3] mt-1">
+            {referralRewards.toFixed(2)}
+          </span>
           <span className="text-[10px] text-[#bbcabf] font-mono">MSDQ Earned</span>
         </div>
 
         <div className="p-3 rounded-2xl bg-[#1c2028] border border-[#3c4a42]/50 flex flex-col">
           <span className="text-[10px] font-mono text-[#bbcabf] uppercase">Mesh Nodes</span>
-          <span className="text-sm font-mono font-bold text-[#dfe2ee] mt-1">64 Rigs</span>
-          <span className="text-[10px] text-[#4cd7f6] font-mono">10 Direct</span>
+          <span className="text-sm font-mono font-bold text-[#dfe2ee] mt-1">
+            {totalReferrals}
+          </span>
+          <span className="text-[10px] text-[#4cd7f6] font-mono">{activeReferrals} Active</span>
         </div>
 
         <div className="p-3 rounded-2xl bg-[#1c2028] border border-[#3c4a42]/50 flex flex-col">
           <span className="text-[10px] font-mono text-[#bbcabf] uppercase">Hash Surge</span>
-          <span className="text-sm font-mono font-bold text-[#ffb95f] mt-1">+4.82 MH/s</span>
-          <span className="text-[10px] text-[#4edea3] font-mono">+0.50 MSDQ/h</span>
+          <span className="text-sm font-mono font-bold text-[#ffb95f] mt-1">
+            +{(activeReferrals * 0.25).toFixed(2)} MH/s
+          </span>
+          <span className="text-[10px] text-[#4edea3] font-mono">
+            +{(activeReferrals * 0.1).toFixed(2)} MSDQ/h
+          </span>
         </div>
       </div>
 
-      {/* Sovereign Node Referral Code Card */}
-      <div className="rounded-3xl bg-[#181c24] border border-[#3c4a42]/60 p-4">
-        <span className="text-xs font-mono font-bold text-[#dfe2ee] uppercase tracking-wider">
-          Your Sovereign Enclave Code
-        </span>
+      {/* Sovereign Node Referral Code & Share Card */}
+      <div className="rounded-3xl bg-[#181c24] border border-[#3c4a42]/60 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-mono font-bold text-[#dfe2ee] uppercase tracking-wider">
+            Your Sovereign Enclave Code
+          </span>
+          <span className="text-[10px] font-mono text-[#4edea3] bg-[#4edea3]/10 border border-[#4edea3]/30 px-2 py-0.5 rounded-full">
+            Active
+          </span>
+        </div>
 
-        <div className="flex items-center gap-2 mt-3">
+        {/* Code Bar */}
+        <div className="flex items-center gap-2">
           <div className="flex-1 p-3 rounded-2xl bg-[#0f131c] border border-[#4edea3]/40 font-mono text-sm font-bold text-[#4edea3] flex items-center justify-between">
-            <span>{referralCode}</span>
-            <span className="text-[10px] text-[#bbcabf] font-normal">LINKED NODE</span>
+            <span className="tracking-wider">{referralCode}</span>
+            <span className="text-[10px] text-[#bbcabf] font-normal">ENCLAVE KEY</span>
           </div>
 
           <button
-            onClick={handleCopy}
-            className="p-3 rounded-2xl bg-[#262a33] border border-[#3c4a42]/60 text-[#dfe2ee] hover:text-[#4edea3] hover:border-[#4edea3]/40 transition-colors flex items-center justify-center"
-            title="Copy Code"
+            onClick={handleCopyCode}
+            className="p-3 rounded-2xl bg-[#262a33] border border-[#3c4a42]/60 text-[#dfe2ee] hover:text-[#4edea3] hover:border-[#4edea3]/40 transition-colors flex items-center justify-center cursor-pointer"
+            title="Copy Referral Code"
           >
             <span className="material-symbols-outlined text-[20px]">
               {copiedCode ? "check" : "content_copy"}
             </span>
           </button>
+        </div>
 
+        {/* Referral Link Bar */}
+        <div>
+          <label className="text-[10px] font-mono text-[#bbcabf] uppercase block mb-1">
+            Direct Invitation Link
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              readOnly
+              value={referralLink}
+              className="flex-1 px-3 py-2 rounded-xl bg-[#0f131c] border border-[#2a3447] font-mono text-xs text-[#94a3b8] truncate focus:outline-none"
+            />
+            <button
+              onClick={handleCopyLink}
+              className="px-3 py-2 rounded-xl bg-[#262a33] border border-[#3c4a42]/60 text-xs font-mono text-[#dfe2ee] hover:text-[#4edea3] transition-colors cursor-pointer shrink-0"
+            >
+              {copiedLink ? "Copied!" : "Copy Link"}
+            </button>
+          </div>
+        </div>
+
+        {/* Real Share Buttons */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          {/* WhatsApp Share Button */}
           <button
-            onClick={onOpenInviteModal}
-            className="py-3 px-4 rounded-2xl bg-[#4edea3] text-[#003824] font-mono text-xs font-bold hover:brightness-110 transition-all flex items-center gap-1.5"
+            onClick={handleWhatsAppShare}
+            className="py-2.5 px-3 rounded-2xl bg-[#25D366]/20 border border-[#25D366]/50 text-[#25D366] hover:bg-[#25D366]/30 font-mono text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+          >
+            <span className="material-symbols-outlined text-[18px]">chat</span>
+            <span>WhatsApp Share</span>
+          </button>
+
+          {/* Native Web Share Button */}
+          <button
+            onClick={handleNativeShare}
+            className="py-2.5 px-3 rounded-2xl bg-[#4edea3] text-[#003824] font-mono text-xs font-bold hover:brightness-110 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-[#4edea3]/20"
           >
             <span className="material-symbols-outlined text-[18px]">share</span>
-            Share
+            <span>Share Link</span>
           </button>
         </div>
       </div>
@@ -119,19 +227,19 @@ export const ReferralsScreen: React.FC<ReferralsScreenProps> = ({
           <div className="p-3 rounded-2xl bg-[#0f131c] border border-[#4edea3]/30">
             <span className="text-[10px] font-mono text-[#4edea3] font-bold uppercase">Tier 1 Direct</span>
             <div className="text-lg font-mono font-bold text-[#dfe2ee] mt-1">15%</div>
-            <span className="text-[10px] text-[#bbcabf] font-mono">10 Active Rigs</span>
+            <span className="text-[10px] text-[#bbcabf] font-mono">Direct Referrals</span>
           </div>
 
           <div className="p-3 rounded-2xl bg-[#0f131c] border border-[#4cd7f6]/30">
             <span className="text-[10px] font-mono text-[#4cd7f6] font-bold uppercase">Tier 2 Sub</span>
             <div className="text-lg font-mono font-bold text-[#dfe2ee] mt-1">5%</div>
-            <span className="text-[10px] text-[#bbcabf] font-mono">28 Active Rigs</span>
+            <span className="text-[10px] text-[#bbcabf] font-mono">Secondary Mesh</span>
           </div>
 
           <div className="p-3 rounded-2xl bg-[#0f131c] border border-[#ffb95f]/30">
             <span className="text-[10px] font-mono text-[#ffb95f] font-bold uppercase">Tier 3 Swarm</span>
             <div className="text-lg font-mono font-bold text-[#dfe2ee] mt-1">2%</div>
-            <span className="text-[10px] text-[#bbcabf] font-mono">26 Active Rigs</span>
+            <span className="text-[10px] text-[#bbcabf] font-mono">Swarm Quorum</span>
           </div>
         </div>
       </div>
@@ -152,66 +260,80 @@ export const ReferralsScreen: React.FC<ReferralsScreenProps> = ({
           </span>
         </div>
 
-        <div className="divide-y divide-[#3c4a42]/30 mt-2">
-          {referrals.map((node) => (
-            <div key={node.id} className="py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-[#262a33] flex items-center justify-center font-mono text-xs text-[#4edea3] border border-[#3c4a42]/50">
-                  {node.name.slice(0, 2)}
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium text-[#dfe2ee]">{node.name}</span>
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-[#4edea3]/10 text-[#4edea3]">
-                      {node.tier}
-                    </span>
-                  </div>
-                  <div className="text-[10px] font-mono text-[#bbcabf] mt-0.5">
-                    +{node.hashContribution} MH/s • {node.yieldGenerated.toFixed(1)} MSDQ Yield
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="text-right">
-                  <span
-                    className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full ${
-                      node.status === "Active"
-                        ? "bg-[#4edea3]/10 text-[#4edea3]"
-                        : node.status === "Idle"
-                        ? "bg-[#ffb4ab]/10 text-[#ffb4ab]"
-                        : "bg-[#ffb95f]/10 text-[#ffb95f]"
-                    }`}
-                  >
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        node.status === "Active"
-                          ? "bg-[#4edea3]"
-                          : node.status === "Idle"
-                          ? "bg-[#ffb4ab]"
-                          : "bg-[#ffb95f]"
-                      }`}
-                    ></span>
-                    {node.status}
-                  </span>
-                  <div className="text-[9px] font-mono text-[#86948a] mt-0.5">
-                    {node.lastPing}
-                  </div>
-                </div>
-
-                {node.canPing && (
-                  <button
-                    onClick={() => onPingNode(node.id)}
-                    className="p-1.5 rounded-xl bg-[#ffb95f]/15 text-[#ffb95f] border border-[#ffb95f]/30 hover:bg-[#ffb95f]/25 transition-colors text-xs flex items-center"
-                    title="Send Wakeup Ping"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">notifications</span>
-                  </button>
-                )}
-              </div>
+        {referrals.length === 0 ? (
+          <div className="py-8 text-center space-y-2">
+            <div className="w-12 h-12 rounded-full bg-[#1c2028] border border-[#2a3447] mx-auto flex items-center justify-center text-[#94a3b8]">
+              <span className="material-symbols-outlined text-[24px]">group_add</span>
             </div>
-          ))}
-        </div>
+            <p className="text-xs text-[#94a3b8] font-mono">
+              No nodes joined with your referral key yet.
+            </p>
+            <p className="text-[11px] text-[#4edea3] font-mono">
+              Share your link above to build your mining syndicate!
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#3c4a42]/30 mt-2">
+            {referrals.map((node) => (
+              <div key={node.id} className="py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-[#262a33] flex items-center justify-center font-mono text-xs text-[#4edea3] border border-[#3c4a42]/50">
+                    {node.name.slice(0, 2)}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-[#dfe2ee]">{node.name}</span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-[#4edea3]/10 text-[#4edea3]">
+                        {node.tier}
+                      </span>
+                    </div>
+                    <div className="text-[10px] font-mono text-[#bbcabf] mt-0.5">
+                      +{node.hashContribution} MH/s • {node.yieldGenerated.toFixed(1)} MSDQ Yield
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <span
+                      className={`inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full ${
+                        node.status === "Active"
+                          ? "bg-[#4edea3]/10 text-[#4edea3]"
+                          : node.status === "Idle"
+                          ? "bg-[#ffb4ab]/10 text-[#ffb4ab]"
+                          : "bg-[#ffb95f]/10 text-[#ffb95f]"
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          node.status === "Active"
+                            ? "bg-[#4edea3]"
+                            : node.status === "Idle"
+                            ? "bg-[#ffb4ab]"
+                            : "bg-[#ffb95f]"
+                        }`}
+                      />
+                      {node.status}
+                    </span>
+                    <div className="text-[9px] font-mono text-[#86948a] mt-0.5">
+                      {node.lastPing}
+                    </div>
+                  </div>
+
+                  {node.canPing && (
+                    <button
+                      onClick={() => onPingNode(node.id)}
+                      className="p-1.5 rounded-xl bg-[#ffb95f]/15 text-[#ffb95f] border border-[#ffb95f]/30 hover:bg-[#ffb95f]/25 transition-colors text-xs flex items-center cursor-pointer"
+                      title="Send Wakeup Ping"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">notifications</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Anti-Fraud Sybil Security Banner */}

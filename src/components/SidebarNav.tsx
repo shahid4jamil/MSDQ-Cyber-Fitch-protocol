@@ -7,6 +7,7 @@ interface SidebarNavProps {
   unclaimedRewardsCount?: number;
   unreadNotifCount?: number;
   isMining?: boolean;
+  isAdmin?: boolean;
 }
 
 export const SidebarNav: React.FC<SidebarNavProps> = ({
@@ -15,13 +16,14 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
   unclaimedRewardsCount = 0,
   unreadNotifCount = 0,
   isMining = true,
+  isAdmin = false,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
 
   const isOpen = isPinned || isHovered;
 
-  const navItems: {
+  const baseNavItems: {
     id: ScreenType;
     label: string;
     icon: string;
@@ -55,8 +57,20 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
       badgeColor: "bg-[#38bdf8] text-[#0f172a]",
     },
     { id: "profile", label: "Profile & KYC", icon: "account_circle" },
-    { id: "admin", label: "Admin Console", icon: "admin_panel_settings", badge: "ROOT", badgeColor: "bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/40" },
   ];
+
+  const navItems = isAdmin
+    ? [
+        ...baseNavItems,
+        {
+          id: "admin" as ScreenType,
+          label: "Admin Console",
+          icon: "admin_panel_settings",
+          badge: "ROOT",
+          badgeColor: "bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/40",
+        },
+      ]
+    : baseNavItems;
 
   return (
     <>

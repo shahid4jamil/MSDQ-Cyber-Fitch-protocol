@@ -53,6 +53,7 @@ export interface GameConfig {
   enabled: boolean;
   description: string;
   rules: string[];
+  maintenanceMessage?: string;
 }
 
 export interface Announcement {

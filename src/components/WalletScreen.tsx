@@ -41,14 +41,14 @@ export const WalletScreen: React.FC<WalletScreenProps> = ({
     setTimeout(() => setCopiedAddress(false), 2000);
   };
 
-  // Metrics
+  // Real-time Ledger Metrics (Starts strictly from zero)
   const totalReceived = transactions
     .filter((tx) => tx.amount > 0 && tx.type !== "mining")
-    .reduce((sum, tx) => sum + tx.amount, 3420.6);
+    .reduce((sum, tx) => sum + tx.amount, 0);
   const totalSent = transactions
     .filter((tx) => tx.amount < 0 && tx.type === "send")
-    .reduce((sum, tx) => sum + Math.abs(tx.amount), 850.0);
-  const pendingBalance = 1991.3;
+    .reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+  const pendingBalance = 0.0;
 
   const filteredTransactions = transactions.filter((tx) => {
     if (filterTab === "all") return true;

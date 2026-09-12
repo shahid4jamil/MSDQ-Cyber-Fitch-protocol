@@ -413,6 +413,63 @@ Let me know if you need specific guidance regarding **Halving countdowns**, **ta
     res.json({ success: true, settings: getGlobalGameSettings() });
   });
 
+  // =========================================================================
+  // Server-Side Cloud Function Endpoints: Referral Validation & Atomic Ledger
+  // =========================================================================
+  
+  // 1. Validate Referral Code Server-Side (ensures referrer exists, prevents self-referral)
+  app.post(["/api/functions/validateReferralCode", "/api/referral/validate"], async (req, res) => {
+    try {
+      const { code, newUserId, newUserEmail } = req.body || {};
+      const { validateReferralCodeServer } = await import("./server/services/referralService.js");
+      const result = await validateReferralCodeServer(code, newUserId, newUserEmail);
+      if (!result.valid) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      console.error("Server error validating referral code:", err);
+      return res.status(500).json({
+        valid: false,
+        error: err.message || "Internal server error validating referral code.",
+      });
+    }
+  });
+
+  // 2. Validate & Apply Referral (Atomic Transaction: checks existence, prevents self-referral, increments reward balance & count)
+  app.post(["/api/functions/validateAndApplyReferral", "/api/referral/apply"], async (req, res) => {
+    try {
+      const { newUserId, newUserEmail, newUserName, referralCode } = req.body || {};
+
+      if (!newUserId || !referralCode) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing required parameters: newUserId and referralCode are required.",
+        });
+      }
+
+      const { applyReferralServer } = await import("./server/services/referralService.js");
+      const result = await applyReferralServer({
+        newUserId,
+        newUserEmail,
+        newUserName,
+        referralCode,
+      });
+
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+
+      return res.json(result);
+    } catch (err: any) {
+      console.error("Server error applying referral transaction:", err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || "Internal server error executing atomic referral transaction.",
+      });
+    }
+  });
+
   // Vite integration
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");

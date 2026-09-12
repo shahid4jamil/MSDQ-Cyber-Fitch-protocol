@@ -323,43 +323,49 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({
             </div>
 
             <div className="divide-y divide-[#2a3447]/40 mt-2">
-              {transactions.slice(0, 5).map((tx) => (
-                <div key={tx.id} className="py-2.5 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                        tx.amount > 0
-                          ? "bg-[#10b981]/15 text-[#10b981]"
-                          : "bg-[#ef4444]/15 text-[#ef4444]"
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">
-                        {tx.amount > 0 ? "arrow_downward" : "arrow_upward"}
-                      </span>
+              {transactions.length === 0 ? (
+                <div className="py-6 text-center text-xs font-mono text-[#64748b]">
+                  No transactions yet. Start mining or complete check-in to disburse your first block.
+                </div>
+              ) : (
+                transactions.slice(0, 5).map((tx) => (
+                  <div key={tx.id} className="py-2.5 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                          tx.amount > 0
+                            ? "bg-[#10b981]/15 text-[#10b981]"
+                            : "bg-[#ef4444]/15 text-[#ef4444]"
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {tx.amount > 0 ? "arrow_downward" : "arrow_upward"}
+                        </span>
+                      </div>
+                      <div className="overflow-hidden">
+                        <div className="text-xs font-medium text-white truncate max-w-[170px] sm:max-w-[220px]">{tx.note}</div>
+                        <div className="text-[10px] font-mono text-[#64748b] flex items-center gap-1.5">
+                          <span>{tx.timestamp}</span>
+                          <span>•</span>
+                          <span className="text-[#94a3b8]">{tx.txHash}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="overflow-hidden">
-                      <div className="text-xs font-medium text-white truncate max-w-[170px] sm:max-w-[220px]">{tx.note}</div>
-                      <div className="text-[10px] font-mono text-[#64748b] flex items-center gap-1.5">
-                        <span>{tx.timestamp}</span>
-                        <span>•</span>
-                        <span className="text-[#94a3b8]">{tx.txHash}</span>
+                    <div className="text-right shrink-0">
+                      <div
+                        className={`font-mono text-xs font-bold ${
+                          tx.amount > 0 ? "text-[#10b981]" : "text-white"
+                        }`}
+                      >
+                        {tx.amount > 0 ? `+${tx.amount.toFixed(2)}` : tx.amount.toFixed(2)} MSDQ
+                      </div>
+                      <div className="text-[10px] font-mono text-[#64748b]">
+                        ${tx.usdValue.toFixed(2)}
                       </div>
                     </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div
-                      className={`font-mono text-xs font-bold ${
-                        tx.amount > 0 ? "text-[#10b981]" : "text-white"
-                      }`}
-                    >
-                      {tx.amount > 0 ? `+${tx.amount.toFixed(2)}` : tx.amount.toFixed(2)} MSDQ
-                    </div>
-                    <div className="text-[10px] font-mono text-[#64748b]">
-                      ${tx.usdValue.toFixed(2)}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
