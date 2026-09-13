@@ -275,8 +275,8 @@ export async function executeServerTaskClaim(
         throw new Error("This task bounty has already been claimed.");
       }
 
-      // Bound reward to strictly authorized values (max 50 MSDQ per task)
-      const sanitizedReward = Math.min(Math.max(0.1, rewardAmount), 50.0);
+      // Bound reward to strictly authorized values (max 500 MSDQ per task)
+      const sanitizedReward = Math.min(Math.max(0.1, rewardAmount), 500.0);
       const currentBal = data.msdqBalance ?? data.balanceMSDQ ?? 0;
       resultBal = parseFloat((currentBal + sanitizedReward).toFixed(4));
 
@@ -287,7 +287,8 @@ export async function executeServerTaskClaim(
         lastActiveAt: Date.now(),
       });
 
-      const txId = `tx-task-${taskId}-${Date.now()}`;
+      const cleanTaskId = taskId.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const txId = `tx-task-${cleanTaskId}-${uid}`;
       const txRef = doc(db, "transactions", txId);
       transaction.set(txRef, {
         id: txId,

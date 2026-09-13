@@ -4,6 +4,7 @@ import { TaskItem } from "../types";
 interface TasksScreenProps {
   tasks: TaskItem[];
   onClaimTask: (taskId: string) => void;
+  onCompleteTask?: (taskId: string) => void;
   protocolBalance: number;
   onNavigate: (screen: any) => void;
 }
@@ -21,6 +22,7 @@ type TaskCategoryFilter =
 export const TasksScreen: React.FC<TasksScreenProps> = ({
   tasks,
   onClaimTask,
+  onCompleteTask,
   protocolBalance,
   onNavigate,
 }) => {
@@ -38,78 +40,10 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
     { id: "referral", label: "Syndicate", icon: "groups" },
   ];
 
-  // Extend initial tasks with hourly, weekly, monthly, special if not already present
-  const allTasks: TaskItem[] = [
-    ...tasks,
-    {
-      id: "task-hourly-1",
-      title: "Hourly Node Heartbeat Ping",
-      description: "Keep your sovereign node synced with consensus cluster every hour.",
-      category: "hourly",
-      reward: 1.5,
-      rewardType: "MSDQ",
-      progress: 1,
-      total: 1,
-      completed: true,
-      claimed: false,
-      badge: "HOURLY",
-    },
-    {
-      id: "task-week-1",
-      title: "Weekly 7-Day Rig Streak",
-      description: "Maintain an uninterrupted 7-day consensus check-in cycle.",
-      category: "weekly",
-      reward: 50.0,
-      rewardType: "MSDQ",
-      progress: 6,
-      total: 7,
-      completed: false,
-      claimed: false,
-      badge: "WEEKLY",
-    },
-    {
-      id: "task-month-1",
-      title: "Monthly Hashrate Sovereign",
-      description: "Log at least 500 hours of active proof-of-work node validation in 30 days.",
-      category: "monthly",
-      reward: 250.0,
-      rewardType: "MSDQ",
-      progress: 380,
-      total: 500,
-      completed: false,
-      claimed: false,
-      badge: "MONTHLY",
-    },
-    {
-      id: "task-spec-1",
-      title: "Level 2 Identity KYC Verification",
-      description: "Complete consensus document audit to unlock unlimited custodial withdrawals.",
-      category: "special",
-      reward: 20.0,
-      rewardType: "MSDQ",
-      progress: 1,
-      total: 1,
-      completed: true,
-      claimed: false,
-      badge: "KYC BONUS",
-    },
-    {
-      id: "task-spec-2",
-      title: "Play First Cyber GameFi Match",
-      description: "Place a stake in Rocket Crash, Ludo, or Fortune Wheel in Game Center.",
-      category: "special",
-      reward: 15.0,
-      rewardType: "PTS",
-      progress: 1,
-      total: 1,
-      completed: true,
-      claimed: false,
-      badge: "GAMEFI",
-    },
-  ];
-
-  // Deduplicate by ID
-  const uniqueTasks = Array.from(new Map(allTasks.map((t) => [t.id, t])).values());
+  // Use state tasks directly, deduplicated by ID
+  const uniqueTasks: TaskItem[] = Array.from(
+    new Map<string, TaskItem>(tasks.map((t) => [t.id, t])).values()
+  );
 
   const filteredTasks = uniqueTasks.filter((t) => {
     const matchesCat = activeCategory === "all" || t.category === activeCategory;
@@ -307,10 +241,11 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
                     </button>
                   ) : (
                     <button
-                      disabled
-                      className="px-3 py-1.5 rounded-xl bg-[#1e2738] text-[10px] font-mono text-[#64748b] border border-[#2a3447] cursor-not-allowed"
+                      onClick={() => onCompleteTask ? onCompleteTask(task.id) : null}
+                      className="px-3.5 py-1.5 rounded-xl bg-[#1e2738] hover:bg-[#2a3447] text-[#38bdf8] font-mono text-xs font-bold transition-all border border-[#38bdf8]/40 hover:border-[#38bdf8] flex items-center gap-1 cursor-pointer"
                     >
-                      Locked
+                      <span className="material-symbols-outlined text-[14px]">play_arrow</span>
+                      <span>Start Task</span>
                     </button>
                   )}
                 </div>

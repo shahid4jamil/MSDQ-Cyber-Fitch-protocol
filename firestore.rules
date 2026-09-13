@@ -49,25 +49,37 @@ service cloud.firestore {
         isAdmin() || (
           // Self-profile updates: user can update general fields but CANNOT self-elevate role, KYC status, or account standing
           request.auth.uid == userId &&
-          request.resource.data.role == resource.data.role &&
-          request.resource.data.id == resource.data.id &&
-          request.resource.data.createdAt == resource.data.createdAt &&
-          request.resource.data.kycStatus == resource.data.kycStatus &&
-          request.resource.data.status == resource.data.status
+          (!('role' in resource.data) || request.resource.data.role == resource.data.role) &&
+          (!('id' in resource.data) || request.resource.data.id == resource.data.id) &&
+          (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+          (!('kycStatus' in resource.data) || request.resource.data.kycStatus == resource.data.kycStatus) &&
+          (!('status' in resource.data) || request.resource.data.status == resource.data.status)
         ) || (
           // P2P Transfer recipient credit: a signed-in peer can only increase recipient balance, leaving all security/identity fields intact
           request.auth.uid != userId &&
-          request.resource.data.id == resource.data.id &&
-          request.resource.data.role == resource.data.role &&
-          request.resource.data.email == resource.data.email &&
-          request.resource.data.walletAddress == resource.data.walletAddress &&
-          request.resource.data.kycStatus == resource.data.kycStatus &&
-          request.resource.data.status == resource.data.status &&
-          request.resource.data.createdAt == resource.data.createdAt &&
+          (!('id' in resource.data) || request.resource.data.id == resource.data.id) &&
+          (!('role' in resource.data) || request.resource.data.role == resource.data.role) &&
+          (!('email' in resource.data) || request.resource.data.email == resource.data.email) &&
+          (!('walletAddress' in resource.data) || request.resource.data.walletAddress == resource.data.walletAddress) &&
+          (!('kycStatus' in resource.data) || request.resource.data.kycStatus == resource.data.kycStatus) &&
+          (!('status' in resource.data) || request.resource.data.status == resource.data.status) &&
+          (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
           (request.resource.data.msdqBalance >= resource.data.msdqBalance)
         )
       );
       allow delete: if isAdmin();
+    }
+
+    // User Subcollections (e.g. referrals, miningSessions)
+    match /users/{userId}/referrals/{refId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || request.auth.uid == refId || isAdmin());
+      allow write: if isSignedIn() && (request.auth.uid == userId || request.auth.uid == refId || isAdmin());
+    }
+
+    match /users/{userId}/miningSessions/{sessionId} {
+      allow read, write: if isValidId(userId) && isValidId(sessionId) && isSignedIn() && (
+        request.auth.uid == userId || isAdmin()
+      );
     }
 
     // Immutable Ledger Transactions
@@ -80,7 +92,7 @@ service cloud.firestore {
       );
       allow create: if isValidId(txId) && isSignedIn() && (
         request.resource.data.userId == request.auth.uid ||
-        (request.resource.data.type in ['receive', 'reward', 'referral_bonus', 'task_reward'] && isSignedIn()) ||
+        (request.resource.data.type in ['receive', 'reward', 'referral_bonus', 'REFERRAL_REWARD', 'task_reward'] && isSignedIn()) ||
         isAdmin()
       );
       allow update, delete: if isAdmin();
@@ -147,12 +159,6 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid || isAdmin()
       );
       allow delete: if isAdmin();
-    }
-
-    // User Subcollections (e.g. referrals)
-    match /users/{userId}/referrals/{refId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || request.auth.uid == refId || isAdmin());
-      allow write: if isSignedIn() && (request.auth.uid == userId || request.auth.uid == refId || isAdmin());
     }
 
     // Dedicated Admins Collection

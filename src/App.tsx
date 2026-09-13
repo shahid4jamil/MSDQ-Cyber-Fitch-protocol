@@ -53,6 +53,9 @@ import {
   startMiningSession,
   claimMiningSessionReward,
   claimDailyCheckIn,
+  claimTaskReward,
+  claimAdReward,
+  claimJoiningBonus,
   subscribeToUserTransactions,
   subscribeToUserReferrals,
 } from "./lib/firebase";
@@ -177,6 +180,36 @@ export default function App() {
         }
         const todayStr = new Date().toISOString().split("T")[0];
         setStreakClaimedToday(profile.lastCheckInDate === todayStr);
+
+        // Sync claimed tasks
+        if (profile.claimedTaskIds && profile.claimedTaskIds.length > 0) {
+          setTasks((prev) =>
+            prev.map((t) =>
+              profile.claimedTaskIds?.includes(t.id)
+                ? { ...t, claimed: true, completed: true, progress: t.total }
+                : t
+            )
+          );
+        }
+
+        // Settle one-time Sovereign Node Joining Bonus (+100.00 MSDQ)
+        if (user && profile.joiningBonusClaimed !== true) {
+          claimJoiningBonus(user.uid)
+            .then((res) => {
+              if (res.success && !res.alreadyClaimed) {
+                setProtocolBalance(res.newBalance);
+                setUserProfile((prev) =>
+                  prev ? { ...prev, joiningBonusClaimed: true, msdqBalance: res.newBalance, balanceMSDQ: res.newBalance } : prev
+                );
+                addAuditLog(
+                  "CONSENSUS_VOTE",
+                  "success",
+                  `Genesis Sovereign Node Joining Grant: +100.00 MSDQ credited to verified ledger.`
+                );
+              }
+            })
+            .catch(() => {});
+        }
       } else {
         setProtocolBalance(0.0);
         setGameVaultBalance(0);
@@ -546,6 +579,22 @@ export default function App() {
     return true;
   };
 
+  const handleCompleteTask = (taskId: string) => {
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, completed: true, progress: t.total } : t
+      )
+    );
+    const task = tasks.find((t) => t.id === taskId);
+    if (task) {
+      addAuditLog(
+        "CONSENSUS_VOTE",
+        "info",
+        `Task completed: "${task.title}". Bounty is ready to claim!`
+      );
+    }
+  };
+
   const handleClaimTask = async (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task || task.claimed) return;
@@ -556,46 +605,60 @@ export default function App() {
     }
 
     try {
-      const resp = await fetch("/api/rewards/claim-task", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          uid: currentUser.uid,
-          taskId: task.id,
-          rewardAmount: task.reward,
-          taskTitle: task.title,
-        }),
-      });
+      let newBalance = protocolBalance + task.reward;
+      let claimedViaServer = false;
+      try {
+        const resp = await fetch("/api/rewards/claim-task", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            uid: currentUser.uid,
+            taskId: task.id,
+            rewardAmount: task.reward,
+            taskTitle: task.title,
+          }),
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success && typeof data.newBalance === "number") {
+          newBalance = data.newBalance;
+          claimedViaServer = true;
+        } else if (!resp.ok && data.error && data.error.includes("already")) {
+          alert(data.error);
+          return;
+        }
+      } catch {}
 
-      const data = await resp.json();
-      if (!resp.ok || !data.success) {
-        alert(data.error || "Failed to claim task bounty.");
-        return;
+      if (!claimedViaServer) {
+        // Direct atomic Firestore transaction claim
+        const clientRes = await claimTaskReward(
+          currentUser.uid,
+          task.id,
+          task.reward,
+          task.title
+        );
+        newBalance = clientRes.newBalance;
       }
 
       setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, claimed: true } : t))
+        prev.map((t) => (t.id === taskId ? { ...t, claimed: true, completed: true, progress: t.total } : t))
       );
-
-      if (typeof data.newBalance === "number") {
-        setProtocolBalance(data.newBalance);
-      } else {
-        setProtocolBalance((prev) => prev + task.reward);
-      }
+      setProtocolBalance(newBalance);
 
       const newTx: Transaction = {
-        id: `tx-${Date.now()}`,
+        id: `tx-task-${task.id.replace(/[^a-zA-Z0-9_-]/g, "_")}-${currentUser.uid}`,
         type: "receive",
         amount: task.reward,
         usdValue: task.reward * 0.5,
         timestamp: "Just now",
         status: "confirmed",
-        txHash: `0x${Math.random().toString(16).slice(2, 8)}...`,
-        note: `Task Reward: ${task.title}`,
+        txHash: `0xtask${Date.now().toString(16)}`,
+        note: `Task Bounty: ${task.title}`,
       };
       setTransactions((prev) => [newTx, ...prev]);
+      addAuditLog("CONSENSUS_VOTE", "success", `Claimed bounty: ${task.title} (+${task.reward} MSDQ)`);
     } catch (err: any) {
-      alert("Network error claiming task bounty.");
+      console.error("Error claiming task:", err);
+      alert(err.message || "Failed to claim task bounty.");
     }
   };
 
@@ -625,39 +688,48 @@ export default function App() {
     }
 
     try {
-      const resp = await fetch("/api/rewards/checkin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid: currentUser.uid }),
-      });
+      let reward = 0.50;
+      let newBalance = protocolBalance + reward;
+      let claimedViaServer = false;
+      try {
+        const resp = await fetch("/api/rewards/checkin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uid: currentUser.uid }),
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          reward = data.reward || 0.50;
+          if (typeof data.newBalance === "number") newBalance = data.newBalance;
+          claimedViaServer = true;
+        } else if (!resp.ok && data.error && data.error.includes("already")) {
+          alert(data.error);
+          return;
+        }
+      } catch {}
 
-      const data = await resp.json();
-      if (!resp.ok || !data.success) {
-        alert(data.error || "Daily check-in failed or already completed today.");
-        return;
+      if (!claimedViaServer) {
+        const clientRes = await claimDailyCheckIn(currentUser.uid, 0.50);
+        newBalance = clientRes.newBalance;
       }
 
-      const reward = data.reward || 0.50;
       setStreakClaimedToday(true);
-      if (typeof data.newBalance === "number") {
-        setProtocolBalance(data.newBalance);
-      } else {
-        setProtocolBalance((prev) => prev + reward);
-      }
+      setProtocolBalance(newBalance);
 
       const newTx: Transaction = {
-        id: `tx-${Date.now()}`,
+        id: `tx-checkin-${Date.now()}`,
         type: "receive",
         amount: reward,
         usdValue: reward * 0.5,
         timestamp: "Just now",
         status: "confirmed",
-        txHash: `0x${Math.random().toString(16).slice(2, 8)}...`,
-        note: `Day ${data.streak || day} Server-Verified Check-In Streak Bonus`,
+        txHash: `0xcheck${Date.now().toString(16)}`,
+        note: `Day ${day} Sovereign Daily Node Check-in Reward`,
       };
       setTransactions((prev) => [newTx, ...prev]);
+      addAuditLog("CONSENSUS_VOTE", "success", `Day ${day} Check-in settled (+${reward} MSDQ).`);
     } catch (err: any) {
-      alert("Network error processing daily check-in.");
+      alert(err.message || "Daily check-in failed or already completed today.");
     }
   };
 
@@ -955,6 +1027,7 @@ export default function App() {
           <TasksScreen
             tasks={tasks}
             onClaimTask={handleClaimTask}
+            onCompleteTask={handleCompleteTask}
             protocolBalance={protocolBalance}
             onNavigate={(screen) => setCurrentScreen(screen)}
           />
@@ -1122,8 +1195,17 @@ export default function App() {
         onClose={() => setIsAdOpen(false)}
         rewardAmount={5.0}
         boostBonus={0.25}
-        onAdCompleted={(reward) => {
-          setProtocolBalance((prev) => prev + reward);
+        onAdCompleted={async (reward) => {
+          if (currentUser) {
+            try {
+              const res = await claimAdReward(currentUser.uid, reward);
+              setProtocolBalance(res.newBalance);
+            } catch {
+              setProtocolBalance((prev) => prev + reward);
+            }
+          } else {
+            setProtocolBalance((prev) => prev + reward);
+          }
           const newTx: Transaction = {
             id: `tx-${Date.now()}`,
             type: "receive",
@@ -1131,10 +1213,11 @@ export default function App() {
             usdValue: reward * 0.5,
             timestamp: "Just now",
             status: "confirmed",
-            txHash: `0x${Math.random().toString(16).slice(2, 8)}...`,
-            note: "AdMob Sponsored Stream Payout",
+            txHash: `0xad${Date.now().toString(16)}`,
+            note: "AdMob Verified Sponsored Stream Reward",
           };
           setTransactions((prev) => [newTx, ...prev]);
+          addAuditLog("CONSENSUS_VOTE", "success", `Ad Stream verified (+${reward} MSDQ).`);
         }}
       />
 

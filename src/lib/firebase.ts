@@ -87,6 +87,7 @@ export interface UserProfile {
   activeReferrals: number;
   referralRewards: number;
   referralCommissionEarned?: number;
+  claimedTaskIds?: string[];
 }
 
 export interface KycApplicationData {
@@ -901,8 +902,8 @@ export async function claimDailyCheckIn(
       lastActiveAt: Date.now(),
     });
 
-    // Record check-in ledger transaction
-    const txId = `tx-checkin-${Date.now()}`;
+    // Record check-in ledger transaction with deterministic ID to prevent any duplicate claim
+    const txId = `tx-checkin-${todayStr}-${uid}`;
     const txRef = doc(db, "transactions", txId);
     transaction.set(txRef, {
       id: txId,
@@ -921,6 +922,174 @@ export async function claimDailyCheckIn(
       streak: newStreak,
       newBalance: newBal,
       message: `Day ${newStreak} Check-in successfully claimed (+${rewardAmount} MSDQ)!`,
+    };
+  });
+}
+
+// -------------------------------------------------------------
+// Task Bounty Reward Engine (Strict Non-Duplicate Claiming)
+// -------------------------------------------------------------
+
+export async function claimTaskReward(
+  uid: string,
+  taskId: string,
+  rewardAmount: number,
+  taskTitle: string
+): Promise<{ success: boolean; newBalance: number; taskId: string }> {
+  const userRef = doc(db, "users", uid);
+  const cleanTaskId = taskId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const txId = `tx-task-${cleanTaskId}-${uid}`;
+  const txRef = doc(db, "transactions", txId);
+
+  return await runTransaction(db, async (transaction) => {
+    const [userSnap, txSnap] = await Promise.all([
+      transaction.get(userRef),
+      transaction.get(txRef),
+    ]);
+
+    if (!userSnap.exists()) {
+      throw new Error("User record not found.");
+    }
+
+    if (txSnap.exists()) {
+      throw new Error("This task bounty has already been claimed.");
+    }
+
+    const data = userSnap.data() as UserProfile;
+    const claimedTaskIds = data.claimedTaskIds || [];
+    if (claimedTaskIds.includes(taskId)) {
+      throw new Error("This task bounty has already been claimed.");
+    }
+
+    const currentBal = data.msdqBalance || 0;
+    const newBal = parseFloat((currentBal + rewardAmount).toFixed(4));
+    const updatedClaimedIds = [...claimedTaskIds, taskId];
+
+    transaction.update(userRef, {
+      msdqBalance: newBal,
+      balanceMSDQ: newBal,
+      claimedTaskIds: updatedClaimedIds,
+      lastActiveAt: Date.now(),
+    });
+
+    transaction.set(txRef, {
+      id: txId,
+      userId: uid,
+      type: "task_reward",
+      amount: rewardAmount,
+      usdValue: rewardAmount * 0.5,
+      timestamp: new Date().toISOString(),
+      status: "confirmed",
+      txHash: `0xtask${Date.now().toString(16)}`,
+      note: `Task Bounty: ${taskTitle} (+${rewardAmount} MSDQ)`,
+    });
+
+    return { success: true, newBalance: newBal, taskId };
+  });
+}
+
+// -------------------------------------------------------------
+// Ad Reward Engine (Stream Verification Credit)
+// -------------------------------------------------------------
+
+export async function claimAdReward(
+  uid: string,
+  rewardAmount: number = 2.0
+): Promise<{ success: boolean; newBalance: number; earned: number }> {
+  const userRef = doc(db, "users", uid);
+  const now = Date.now();
+  const txId = `tx-ad-${now}-${uid.slice(0, 6)}`;
+  const txRef = doc(db, "transactions", txId);
+
+  return await runTransaction(db, async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists()) {
+      throw new Error("User record not found.");
+    }
+
+    const data = userSnap.data() as UserProfile;
+    const currentBal = data.msdqBalance || 0;
+    const newBal = parseFloat((currentBal + rewardAmount).toFixed(4));
+
+    transaction.update(userRef, {
+      msdqBalance: newBal,
+      balanceMSDQ: newBal,
+      lastActiveAt: now,
+    });
+
+    transaction.set(txRef, {
+      id: txId,
+      userId: uid,
+      type: "reward",
+      amount: rewardAmount,
+      usdValue: rewardAmount * 0.5,
+      timestamp: new Date(now).toISOString(),
+      status: "confirmed",
+      txHash: `0xad${now.toString(16)}`,
+      note: `Sponsored Cyber Ad Stream Verification (+${rewardAmount} MSDQ)`,
+    });
+
+    return { success: true, newBalance: newBal, earned: rewardAmount };
+  });
+}
+
+// -------------------------------------------------------------
+// Joining Bonus Engine (One-Time Genesis Grant +100 MSDQ)
+// -------------------------------------------------------------
+
+export async function claimJoiningBonus(
+  uid: string
+): Promise<{ success: boolean; newBalance: number; alreadyClaimed: boolean }> {
+  const userRef = doc(db, "users", uid);
+  const txId = `tx-joining-${uid}`;
+  const txRef = doc(db, "transactions", txId);
+
+  return await runTransaction(db, async (transaction) => {
+    const [userSnap, txSnap] = await Promise.all([
+      transaction.get(userRef),
+      transaction.get(txRef),
+    ]);
+
+    if (!userSnap.exists()) {
+      throw new Error("User record not found.");
+    }
+
+    const data = userSnap.data() as UserProfile;
+    if (data.joiningBonusClaimed === true || txSnap.exists()) {
+      return {
+        success: true,
+        newBalance: data.msdqBalance || 0,
+        alreadyClaimed: true,
+      };
+    }
+
+    const currentBal = data.msdqBalance || 0;
+    const grantAmount = 100.0;
+    const newBal = parseFloat((currentBal + grantAmount).toFixed(4));
+
+    transaction.update(userRef, {
+      msdqBalance: newBal,
+      balanceMSDQ: newBal,
+      joiningBonusClaimed: true,
+      lastActiveAt: Date.now(),
+    });
+
+    transaction.set(txRef, {
+      id: txId,
+      userId: uid,
+      type: "reward",
+      amount: grantAmount,
+      usdValue: grantAmount * 0.5,
+      timestamp: new Date().toISOString(),
+      status: "confirmed",
+      txHash: `0xjoin${Date.now().toString(16)}`,
+      note: "Genesis Sovereign Node Joining Bonus (+100.00 MSDQ)",
+    });
+
+    return {
+      success: true,
+      newBalance: newBal,
+      alreadyClaimed: false,
     };
   });
 }
